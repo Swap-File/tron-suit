@@ -56,9 +56,9 @@ byte last_set_fade=0;
 #define SET_FRAME2 0x17
 
 #define SET_RAINBOW 0x19  //no confirmation needed
+#define PING 0x19
 
-
-
+boolean flipped= false;
 
 //suit reply
 #define CONFIRMED 0x11
@@ -81,7 +81,7 @@ byte spectrumValueMute[6];  //mutes selected channels
 //LPD8806 strip pins
 const int dataPin = 53;
 const int clockPin = 52;
-
+boolean staticdisplayloaded = false;
 //global indexes for strip for effects
 byte i = 0;
 int rainbowoffset = 383;
@@ -95,6 +95,8 @@ unsigned int ytilt;
 unsigned long fist_pump_timer=0;
 #define fistpump 2000  //2 second alarm time
 
+unsigned long frame_timer=0;
+#define frametime 5000  //2 second alarm time
 
 //displaying gesture data on lcd
 boolean pumped=false;
@@ -104,7 +106,7 @@ unsigned long overlaytimer=0;
 byte overlaystatus=0;
 byte  overlayprimer=0;
 
-
+boolean textmessagemode=false;
 
 
 
@@ -130,17 +132,15 @@ unsigned long latch_cool_down; //keep track of time  gesture ended at
 unsigned long fpstime=0;
 int fps=0;
 
-
 //serial buffers
 byte serial2buffer[81];
 byte serial2bufferpointer = 0;
 byte serial2payloadsize=0; 
-byte frame1[81];
-byte frame2[81];
-
+byte frame1[81] = " CONvergence Merchandise will be at the GPS Trivia contest, which takes place th";
+byte frame2[81] = " Saturday, April 6th. We will have the new 2013 Midyear T-shirt for sale (availa";
+byte frame=0;
 byte serial1buffer[3];
 byte serial1bufferpointer = 0;
-
 
 //these filter the inputs from the buttons
 //about two fps
@@ -327,6 +327,9 @@ void loop() {
   }
 
   if (cButtonDelayed  ){
+
+
+
     switch (dpad){
     case DPAD_LEFT:
       color= 0; //red
@@ -341,7 +344,7 @@ void loop() {
       span =0;
       break;
     case DPAD_DOWN:
-      color= 385;//rainbow - special case 
+      color= 385;//rainbow - special case
       span =0;
       break;
     case DPAD_UP_LEFT:
@@ -368,6 +371,10 @@ void loop() {
         //wrap color to circle
         color =(color+384) % 384;
       }
+      else{
+        //unused gesture for special color modes so ascii animation still works
+        gesture(color,colorrange);
+      }
     }
   }
 
@@ -382,10 +389,10 @@ void loop() {
 
       break;
     case DPAD_UP:
-
+      textmessagemode=true;
       break;
     case DPAD_DOWN:
-
+      textmessagemode=false;
       break;
     case DPAD_UP_LEFT:
       overlayprimer = 3;
@@ -987,6 +994,9 @@ void readserial(){
   while(Serial2.available()){
 
     switch (Serial2.peek()){
+      case PING:
+      serial2bufferpointer=0;
+      serial2payloadsize=0; 
     case SET_COLOR:
     case SET_SPAN:
       serial2bufferpointer=0;
@@ -1002,8 +1012,10 @@ void readserial(){
     serial2buffer[serial2bufferpointer] = Serial2.read(); //load a character
     if(serial2bufferpointer == serial2payloadsize){    //all payloads are size 2
       switch (serial2buffer[0]){
+        case PING:
+         //Serial2.write(CONFIRMED);
       case SET_COLOR:
-        Serial2.write(CONFIRMED);
+//Serial2.write(CONFIRMED);
         {
           int tempcolor  = (serial2buffer[1] << 6) | (serial2buffer[2] >> 1);
           color = tempcolor;
@@ -1012,7 +1024,7 @@ void readserial(){
           break;
         }
       case SET_SPAN:
-        Serial2.write(CONFIRMED);
+        //Serial2.write(CONFIRMED);
         {
           int tempspan=( serial2buffer[1] << 6) | (serial2buffer[2] >> 1);
           span=tempspan;
@@ -1022,14 +1034,14 @@ void readserial(){
           break;
         }
       case SET_FRAME1:
-        Serial2.write(CONFIRMED);
+        //Serial2.write(CONFIRMED);
         {
           memcpy(frame1,serial2buffer,sizeof(serial2buffer));
           frame1[0]=0xff;
           break;
         }
       case SET_FRAME2:
-        Serial2.write(CONFIRMED);
+        //Serial2.write(CONFIRMED);
         {
           memcpy(frame2,serial2buffer,sizeof(serial2buffer));
           frame2[0]=0xff;
@@ -1272,36 +1284,75 @@ void updatedisplay(){
   Serial3.write(b<<1);//b
 
   //both frames are loaded, go go animation
-  if(frame1[0] > 0 && frame2[0] > 0){
+  if(textmessagemode){
+    //if(frame1[0] > 0 && frame2[0] > 0){
     frame1[0]--;
     frame2[0]--;
 
     //if fistpump timer has ran out animate based on the clock
-    if (millis() - fist_pump_timer > fistpump ){
-      if((millis()  >> 10) & 0x01 ){ //blink based on clock
-        for (byte i=1; i<81; i++ ) {
-          Serial3.write(frame2[i]);
-        }
 
+
+
+
+    if (millis() - frametime > frame_timer ){ 
+      if(((millis() >> 9) & 0x01) == 0x01 ){
+        if (flipped == false){
+          frame=frame ^ 0x01;
+          flipped = true;
+          frame_timer = millis();
+        }
+      } 
+    }
+    else{
+      if(((dpad == DPAD_UP) && zButtonDelayed)){
+        if(((millis() >> 6) & 0x01) == 0x01){
+          if (flipped == false){
+            frame=frame ^ 0x01;
+            flipped = true;
+            frame_timer = millis();
+          }
+        } 
+        else{
+          flipped = false; 
+        }
       }
-      else{  
-        for (byte i=1; i<81; i++ ) {
-          Serial3.write(frame1[i]);
+      else{
+        if (latch_flag == 4 || latch_flag == 5){
+          if (flipped == false){
+            frame=frame ^ 0x01;
+            flipped = true;
+            frame_timer = millis();
+          }
         }
+        else{
+          flipped = false; 
+        }
+      }
+    }
 
+
+    if (color == 385){
+      if(frame == 0){
+        Serial3.print(F("-_-_-_-_,------,    _-_-_-_-|   /\\_/\\   -_-_-_-~|__( ^ .^)  _-_-_-_-  \"\"  \"\"    "));
+      }
+      else if (frame == 1){  
+        Serial3.print(F("_-_-_-_-,------,    -_-_-_-_|   /\\_/\\   --_-_-_~|__(^ .^ )  -_-_-_-_ \"\"  \"\"     "));
       }
     }
     else{
-      //change based on pumping
-
-
-
+      if(frame == 0){
+        for (byte i=1; i<81; i++ ) {
+          Serial3.write(frame2[i]);
+        }
+      }
+      else if (frame == 1){  
+        for (byte i=1; i<81; i++ ) {
+          Serial3.write(frame1[i]);
+        }
+      }
     }
-
-
-
-
   }
+
   else{
     Serial3.print(effectmode);
     Serial3.print("  ");
@@ -1421,6 +1472,7 @@ void updatedisplay(){
   } 
   //fist pump modes
   else {  
+
     //change the pump status based on tilt
     if (ytilt == 0){
       //reset fist pump timer on status change
@@ -1458,6 +1510,29 @@ void updatedisplay(){
   fade = tempfade;
   brightness = tempbrightness;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

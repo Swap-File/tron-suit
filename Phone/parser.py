@@ -8,18 +8,24 @@ from base64 import b64encode
 droid = android.Android()
 blacklist = []
 
-#Messages must be 160 character long SMS, not MMS, or multipart SMS.  Multipart messages will be ignored.
+#Messages must be 160 character long SMS, not MMS, or multipart SMS.
+#Multipart messages will be ignored.
 #Messages that are plain text are centered and displayed on the helmet.
 
 #Message may include up to two HTML Color codes (A primary and secondary), 3 or 6 digits long.
+#Example: #F0F or #3352FF
 #Black and white are ignored, and all color codes will have their chroma maximized before display.
-#The primay color code is used directly, the secondary is adjusted to be at most 120 degrees away from the primary on the HSV circle.
+#Example: #442244 turns into #FF00FF
+#The primay color code is used as is.
+#The secondary is adjusted to be at most 120 degrees away from the primary on the HSV circle.
 #Color codes are removed from any attached text before it is displayed on the helmet.
 
 #Messages exactly 80 or 160 characters long are treated as ascii art and displayed unchanged.
-#A 160 character long message will be shown as two animated frames, an 80 character message is shown as a static image.
+#A 160 character long message will be shown as two animated frames.
+#An 80 character message is shown as a static image.
 #The character count is taken without color codes.
-#Technically, anything in the GSM 03.38 character set will work for art, but not everything has a corresponding character on the LCD screen.
+#Technically, anything in the GSM 03.38 character set will work for art...
+#But not everything has a corresponding character on the LCD screen.
 
 #Don't be afraid to try it, you cant break anything, and if you do, congratulations!
 
@@ -37,7 +43,6 @@ while True:
 	#get new messages		
 	input = droid.smsGetMessages(True)	
 			
-
 	if (len(input.result) != 0):
 		
 		#wake up and get to work!
@@ -62,22 +67,17 @@ while True:
 		blacklist.append({'time':time.time() + 10,'value':input.result[0]['address']})
 		
 		if (count > 0):
-			#message recieved too quicky from same person.  likely a multipart message or being flooded.  Ignore.
+			#message recieved too quicky or a multipart message or being flooded.  Ignore.
 			print "Blocked message from " + input.result[0]['address'] 
 			droid.smsMarkMessageRead([input.result[0]['_id']],True)
 			droid.wakeLockRelease()
 		else:
 			#get message body
-			var = input.result[0]['body']
-			
-
-			cleanString = []
-			#clean the string for display
-			cleanString = re.sub( r'#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})\b' , '', var)
-					
+			body = input.result[0]['body']
+								
 			initalMatches = []
 			#find all hex codes
-			initalMatches = re.findall( r'#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})\b' , var)
+			initalMatches = re.findall( r'#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})\b' , body)
 
 			#expand 3 character codes into 6 character codes
 			expandedMatches = []
@@ -142,6 +142,11 @@ while True:
 			if (len(colorDegrees) > 0):	
 				color = int((colorDegrees[0] * 384/360 + 384) % 384)
 				
+			
+			cleanString = []
+			#clean the string for display
+			cleanString = re.sub( r'#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})\b' , '', body).strip()
+			
 			#filters out control characters from input text
 			outputText = ""	
 			for character in cleanString:
@@ -219,18 +224,6 @@ while True:
 							droid.bluetoothWriteBinary(b64encode(chr((color >> 6) & 0xFE)))
 							droid.bluetoothWriteBinary(b64encode(chr((color << 1) & 0xFE)))	
 							
-						#wait one second to recieve ack back
-						deadline = time.time() + .5
-						while(droid.bluetoothReadReady().result == False):
-							if(time.time() > deadline):
-								raise Exception
-								
-						#check incoming buffer
-						if(droid.bluetoothReadBinary().result is None):
-								raise Exception
-														
-						#send span
-						droid.bluetoothWriteBinary(b64encode(chr(19)))
 						if (span < 128): #pad if data is small
 							droid.bluetoothWriteBinary(b64encode(chr(0)))
 							droid.bluetoothWriteBinary(b64encode(chr((span << 1)& 0xFE)))

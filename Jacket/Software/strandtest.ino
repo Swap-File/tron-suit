@@ -136,11 +136,15 @@ int fps=0;
 byte serial2buffer[81];
 byte serial2bufferpointer = 0;
 byte serial2payloadsize=0; 
-byte frame1[81] = " CONvergence Merchandise will be at the GPS Trivia contest, which takes place th";
-byte frame2[81] = " Saturday, April 6th. We will have the new 2013 Midyear T-shirt for sale (availa";
+byte frame1[80] = "CONvergence Merchandise will be at the GPS Trivia contest, which takes place th";
+byte frame2[80] = "Saturday, April 6th. We will have the new 2013 Midyear T-shirt for sale (availa";
 byte frame=0;
 byte serial1buffer[3];
 byte serial1bufferpointer = 0;
+unsigned long message_timer=0;
+#define MESSAGETIMEOUT 60000 
+unsigned long ring_timer=0;
+#define RINGTIMEOUT 1000 
 
 //these filter the inputs from the buttons
 //about two fps
@@ -389,10 +393,10 @@ void loop() {
 
       break;
     case DPAD_UP:
-      textmessagemode=true;
+      message_timer=millis();
       break;
     case DPAD_DOWN:
-      textmessagemode=false;
+      message_timer=0;
       break;
     case DPAD_UP_LEFT:
       overlayprimer = 3;
@@ -612,9 +616,11 @@ void loop() {
   else if (effectmode == 6){
     brightness=127;
     for( i=0; i<strip.numPixels(); i++) strip.setPixelColor(i, Wheel(color));
-    byte tempytilt = map(ytilt, 0, 254,0, 21);
+    byte tempytilt = map(ytilt, 0, 254,0, 23);
     instantspan =  map(tempytilt,0,21,0,SpanWheel(span));
     if (tempytilt < 21 and tempytilt >0)  strip.setPixelColor(tempytilt-1, 0);
+    if (tempytilt < 22 and tempytilt >1)  strip.setPixelColor(tempytilt-2, 0);
+    if (tempytilt < 23 and tempytilt >2)  strip.setPixelColor(tempytilt-3, 0);
   }
   else if (effectmode == 7){
 
@@ -925,15 +931,12 @@ void readserial(){
     case SET_SPAN:
     case SET_FADE_BRIGHTNESS:
       serial1bufferpointer=0;
-      //serial1payloadsize=2;  //all payloads are size 2
       break;
     }
 
     serial1buffer[serial1bufferpointer] = Serial1.read(); //load a character
     if(serial1bufferpointer == 2){//all payloads are size 2
-      //if(serial1bufferpointer == serial1payloadsize){ 
       switch (serial1buffer[0]){
-
       case SET_COLOR:
         {
           int tempcolor  = (serial1buffer[1] << 6) | (serial1buffer[2] >> 1);
@@ -981,6 +984,8 @@ void readserial(){
           Serial1.write(brightness+127);//notused padding
         }
         break;
+      default:
+        serial1buffer[0] = 0xff;
       }
     }
 
@@ -994,13 +999,9 @@ void readserial(){
   while(Serial2.available()){
 
     switch (Serial2.peek()){
-      case PING:
-      serial2bufferpointer=0;
-      serial2payloadsize=0; 
     case SET_COLOR:
-    case SET_SPAN:
       serial2bufferpointer=0;
-      serial2payloadsize=2; 
+      serial2payloadsize=4; 
       break;
     case SET_FRAME1:
     case SET_FRAME2:
@@ -1012,41 +1013,34 @@ void readserial(){
     serial2buffer[serial2bufferpointer] = Serial2.read(); //load a character
     if(serial2bufferpointer == serial2payloadsize){    //all payloads are size 2
       switch (serial2buffer[0]){
-        case PING:
-         //Serial2.write(CONFIRMED);
       case SET_COLOR:
-//Serial2.write(CONFIRMED);
+        Serial2.write(CONFIRMED);
         {
-          int tempcolor  = (serial2buffer[1] << 6) | (serial2buffer[2] >> 1);
-          color = tempcolor;
-          latch_data = tempcolor;//copy into latch buffer incase a new color comes in while gestureing
-          last_set_color = tempcolor;
-          break;
-        }
-      case SET_SPAN:
-        //Serial2.write(CONFIRMED);
-        {
-          int tempspan=( serial2buffer[1] << 6) | (serial2buffer[2] >> 1);
-          span=tempspan;
-          last_set_span = tempspan;
-          latch_data = tempspan;//copy into latch buffer incase a new color comes in while gestureing
-          tempspan = tempspan +512;
+          int temp  = (serial2buffer[1] << 6) | (serial2buffer[2] >> 1);
+          color = temp;
+          latch_data = temp;//copy into latch buffer incase a new color comes in while gestureing
+          temp=( serial2buffer[3] << 6) | (serial2buffer[4] >> 1);
+          span=temp;
+          latch_data = temp;//copy into latch buffer incase a new color comes in while gestureing
           break;
         }
       case SET_FRAME1:
-        //Serial2.write(CONFIRMED);
+        message_timer=0;
+        ring_timer=millis();
+        Serial2.write(CONFIRMED);
         {
-          memcpy(frame1,serial2buffer,sizeof(serial2buffer));
-          frame1[0]=0xff;
+          memcpy(frame1,&serial2buffer[1],sizeof(frame1));
           break;
         }
       case SET_FRAME2:
-        //Serial2.write(CONFIRMED);
+        Serial2.write(CONFIRMED);
         {
-          memcpy(frame2,serial2buffer,sizeof(serial2buffer));
-          frame2[0]=0xff;
+          memcpy(frame2,&serial2buffer[1],sizeof(frame2));
+          message_timer=millis();
           break;
         }
+      default:
+        serial2buffer[0] = 0xff;
       }
 
     }
@@ -1234,6 +1228,11 @@ void updatedisplay(){
   if (fade < 7){
     fade = 0;
   }
+  else{
+    if(ring_timer + RINGTIMEOUT > millis() ||  (ring_timer + RINGTIMEOUT*2 < millis() & ring_timer + RINGTIMEOUT *3 > millis()   )){
+      fade=0;
+    } 
+  }
   brightness=127;
 
   //extract RGB values from color
@@ -1263,9 +1262,13 @@ void updatedisplay(){
     }
   }
   if (overlaystatus ==1 ){
+
     fade=0;
     brightness = overlaybrightness;
   }
+
+
+
 
   long int tempcolor =Wheel(color);
   byte r = (tempcolor>> 8)& 0x7F;
@@ -1277,22 +1280,23 @@ void updatedisplay(){
   //build a data packet to send to the helmet
   Serial3.write(START_COMMAND);
 
+  if(ring_timer + RINGTIMEOUT > millis() ||  (ring_timer + RINGTIMEOUT*2 < millis() & ring_timer + RINGTIMEOUT *3 > millis()   )){
+    if((millis()  >> 6) & 0x01 ){ 
+      r = 0;
+      g = 0;
+      b = 0;
+    }
+  }
+
 
   //output RGB to LCD backlight
   Serial3.write(r<<1);//r
   Serial3.write(g<<1);//g
   Serial3.write(b<<1);//b
 
+
   //both frames are loaded, go go animation
-  if(textmessagemode){
-    //if(frame1[0] > 0 && frame2[0] > 0){
-    frame1[0]--;
-    frame2[0]--;
-
-    //if fistpump timer has ran out animate based on the clock
-
-
-
+  if(millis() < MESSAGETIMEOUT + message_timer){
 
     if (millis() - frametime > frame_timer ){ 
       if(((millis() >> 9) & 0x01) == 0x01 ){
@@ -1341,12 +1345,12 @@ void updatedisplay(){
     }
     else{
       if(frame == 0){
-        for (byte i=1; i<81; i++ ) {
+        for (byte i=0; i<80; i++ ) {
           Serial3.write(frame2[i]);
         }
       }
       else if (frame == 1){  
-        for (byte i=1; i<81; i++ ) {
+        for (byte i=0; i<80; i++ ) {
           Serial3.write(frame1[i]);
         }
       }
@@ -1504,12 +1508,27 @@ void updatedisplay(){
     }
   }
 
+  if(ring_timer + RINGTIMEOUT > millis() ||  (ring_timer + RINGTIMEOUT*2 < millis() & ring_timer + RINGTIMEOUT *3 > millis()   )){
+    if((millis()  >> 6) & 0x01 ){ 
+      gpio=0x0F;
+    }
+    else{
+      gpio=0x00;
+    }
+  }
   Serial3.write(gpio);
 
   //set brightness again
   fade = tempfade;
   brightness = tempbrightness;
 }
+
+
+
+
+
+
+
 
 
 

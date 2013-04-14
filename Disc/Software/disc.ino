@@ -248,7 +248,7 @@ void setup()
 
 void loop()
 {
- 
+
   //battery level check
   //650 = 9.45v
   if (analogRead(0) < 650){
@@ -286,7 +286,7 @@ void loop()
     delay(1000);
 
     digitalWrite(LIGHTS,LOW );
-    if (g_array[0]+g_array[1]+g_array[2] < 10){
+    if (g_array[0]+g_array[1]+g_array[2] <20){
       fade=7;
     }
     else{
@@ -299,7 +299,7 @@ void loop()
       strip.showCompileTime<ClockPin, DataPin>();              // Refresh LED states
       delay(50);
     }
-  
+
     z_latch = 0;
     currentmode=0;
 
@@ -313,10 +313,10 @@ void loop()
   }
 
 
- 
- //normal serial read
-  while(Serial.available()){
 
+  //normal serial read
+  while(Serial.available()){
+    currentmode = 0;
     //watch for commands
     switch (Serial.peek()){
 
@@ -325,7 +325,6 @@ void loop()
     case SET_FADE_BRIGHTNESS:
     case SET_RAINBOW:
       serialbufferpointer=0;
-     // serialpayloadsize=2;
       break;
     }
 
@@ -372,6 +371,7 @@ void loop()
       case SET_FADE_BRIGHTNESS: //never setting brightness from disc,always reply with std data for confirmation
         if (serialbuffer[1] > 7 ){
           last_set_fade=serialbuffer[1]-8;
+        
         } 
         else{
           fade = serialbuffer[1];
@@ -385,24 +385,22 @@ void loop()
           Serial.write(brightness+127);//notused padding
         }
         break;
-
+      default:
+        serialbuffer[0] = 0xff;
 
       case SET_RAINBOW: //never confirming rainbow
         rainbowoffset = (serialbuffer[1] << 6) | (serialbuffer[2] >> 1);
         break;
- 
-
       }
     }
     serialbufferpointer++;
 
-    //
     if (serialbufferpointer>2){
       serialbufferpointer=0;
     }
   }
 
-//serial write
+  //serial write
   if(millis()-lastupdate >50){
 
     if (last_set_color != color){
@@ -420,7 +418,7 @@ void loop()
     if (last_set_fade != fade){
       Serial.write(SET_FADE_BRIGHTNESS);
       Serial.write(fade); //data small enough (0-7)it wont collide
-       Serial.write(brightness+127); //not used, but needed for padding
+      Serial.write(brightness+127); //not used, but needed for padding
     }
 
     lastupdate=millis();
@@ -777,6 +775,7 @@ uint32_t Wheel(uint16_t WheelPos){
   b = b*brightness/127;
   return(strip.Color( r >> fade ,g >> fade,b >> fade));
 }
+
 
 
 

@@ -52,24 +52,107 @@ HardwareSerial Uart = HardwareSerial();
 #define GPO_4  16 //PC7
 
 
-// see a list of matrix orbital commands here (we dont support -all-)
-//http://www.matrixorbital.ca/manuals/LCDVFD_Series/LCD2041/LCD2041.pdf
-
-
-/******** text commands */
-
-/****** special chars */
-#define CUSTOM_CHARACTER 0x4E  // 9 args: char #, 8 bytes data
-#define SAVECUSTOMCHARBANK 0xC1  // 9 args: char #, 8 bytes data
-#define LOADCUSTOMCHARBANK 0xC0  // 9 args: char #, 8 bytes data
-/***** Numbers & Bargraphs */
-
-
 /***** GPO commands */
 #define SET_ALL 0xD2 // 3 args - R G B + 80 args (char)
 
 #define START_COMMAND 0x11
 //#define END_COMMAND 0x9A
+
+byte SpecialChar0[8]={
+  B11111,
+  B11111,
+  B11111,
+  B11111,
+  B11111,
+  B11111,
+  B11111,
+  B11111
+};
+
+//Custom Character #1
+byte SpecialChar1[8]={
+  B11101,
+  B11111,
+  B01111,
+  B11111,
+  B11111,
+  B11110,
+  B11111,
+  B10111
+};
+
+//Custom Character #2
+byte SpecialChar2[8]={
+  B10101,
+  B11011,
+  B01111,
+  B10111,
+  B11101,
+  B11110,
+  B11011,
+  B10101
+};
+
+//Custom Character #3
+byte SpecialChar3[8]={
+  B10101,
+  B11010,
+  B01101,
+  B10110,
+  B01101,
+  B10110,
+  B01011,
+  B10101
+};
+
+//Custom Character #4
+byte SpecialChar4[8]={
+  B01010,
+  B00101,
+  B10010,
+  B01001,
+  B10010,
+  B01001,
+  B10100,
+  B01010
+};
+
+//Custom Character #5
+byte SpecialChar5[8]={
+  B01010,
+  B00100,
+  B10000,
+  B01000,
+  B00010,
+  B00001,
+  B00100,
+  B01010
+};
+
+//Custom Character #6
+byte SpecialChar6[8]={
+  B00010,
+  B00000,
+  B10000,
+  B00000,
+  B00000,
+  B00001,
+  B00000,
+  B01000
+};
+
+//Custom Character #7
+byte SpecialChar7[8]={
+  B00000,
+  B00000,
+  B00000,
+  B00000,
+  B00000,
+  B00000,
+  B00000,
+  B00000
+};
+
 
 
 unsigned long fpstime=0;
@@ -107,6 +190,14 @@ void setup() {
   _delay_ms(250);  
   setBacklight(255, 255, 255);      // set backlight full on
 
+  lcd.createChar(0, SpecialChar7);
+  lcd.createChar(1, SpecialChar6);
+  lcd.createChar(2, SpecialChar5);
+  lcd.createChar(3, SpecialChar4);
+  lcd.createChar(4, SpecialChar3);
+  lcd.createChar(5, SpecialChar2);
+  lcd.createChar(6, SpecialChar1);
+  lcd.createChar(7, SpecialChar0);
 
 
   // for the initial 'blink' we want to use default settings:
@@ -175,7 +266,7 @@ void loop() {
     else{
       serialbuffer[serialbufferpointer] = Uart.read(); //load a character
     }
-    
+
     if (serialbuffer[0] != START_COMMAND){
       serialbufferpointer=-1;
     }
@@ -192,9 +283,9 @@ void loop() {
       setGPIO(serialbuffer[84]);
 
     }
-    
+
     serialbufferpointer++;
-    
+
     if (serialbufferpointer>84){
       serialbufferpointer=0;
     }
@@ -243,6 +334,7 @@ void setGPIO(uint8_t i) {
     digitalWrite(GPO_4, HIGH);
   }
 }
+
 
 
 

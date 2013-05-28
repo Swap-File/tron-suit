@@ -42,21 +42,22 @@
 
 //disc
 #define SET_COLOR 0x11
-int last_set_color=0;//set to impossible value to force send on boot
+int last_set_color= -1 ;//set to impossible value to force send on boot
 
 
 #define SET_SPAN 0x13
-int last_set_span=128;//set to impossible value to force send on boot
+int last_set_span=-1;//set to impossible value to force send on boot
 
 #define SET_FRAME1 0x15
 #define SET_FADE_BRIGHTNESS 0x15
-byte last_set_brightness=127;
-byte last_set_fade=0;
+byte last_set_brightness=128; //set to impossible value to force sending first time
+byte last_set_fade=8;  //set to impossible value to force sending first time
 
 #define SET_FRAME2 0x17
 
+//these two can overlap
 #define SET_RAINBOW 0x19  //no confirmation needed
-#define PING 0x19
+#define TRIPLE_TAP 0x19  //no sending needed
 
 boolean flipped= false;
 
@@ -136,8 +137,9 @@ int fps=0;
 byte serial2buffer[81];
 byte serial2bufferpointer = 0;
 byte serial2payloadsize=0; 
-byte frame1[80] = "CONvergence Merchandise will be at the GPS Trivia contest, which takes place th";
-byte frame2[80] = "Saturday, April 6th. We will have the new 2013 Midyear T-shirt for sale (availa";
+byte serial1payloadsize=0; 
+byte frame1[80] = "                                                                               ";
+byte frame2[80] = "                                                                               ";
 byte frame=0;
 byte serial1buffer[3];
 byte serial1bufferpointer = 0;
@@ -175,9 +177,9 @@ byte dpad = 0x00;
 #define DPAD_DEADZONE B00010000
 //makes sure dpad input is processed only once
 boolean dirpressed=false;
+byte batterywarning=0;
 
-
-
+unsigned long nunchuck_update=0;
 
 LPD8806 strip = LPD8806(20, dataPin, clockPin);
 
@@ -219,13 +221,34 @@ void setup() {
 
 void loop() {
 
+
+
+  //approx 14V
+  if (analogRead(1) < 720){
+    batterywarning++;
+  }
+  else{
+    batterywarning=0;
+  }
+
+  if (batterywarning > 60){
+    Serial.print("Lowbatt ");
+    fade=7;
+  }
+
+
+
   overlayprimer=0;
 
 
   readserial();    //service serial ports
   sendserial(); //send serial data
 
-  nunchuk.update();       //read data from nunchuck
+  //limit nunchuck updating so not to flood the chuk
+  if ( millis() - nunchuck_update > 50){
+    nunchuk.update();       //read data from nunchuck
+    nunchuck_update=millis();
+  }
 
   nunchuckparse();  //filter inputs and set D-pad boolean mappings
 
@@ -400,6 +423,11 @@ void loop() {
       break;
     case DPAD_UP_LEFT:
       overlayprimer = 3;
+
+      //change mode instantly without motion if faded
+      if (fade == 7){
+        effectmode=8;
+      }
       break;
     case DPAD_DOWN_RIGHT:
       if (fade < 7 && dirpressed==false ) fade++; 
@@ -577,7 +605,9 @@ void loop() {
 
   else if (effectmode == 2){
     brightness = map(ytilt, 0, 254,0, 127);
+
     instantspan =  map(brightness,0,127,0,SpanWheel(span));
+
     for( i=0; i<strip.numPixels(); i++)     {
       strip.setPixelColor(i,  Wheel(color));
     }
@@ -623,6 +653,28 @@ void loop() {
     if (tempytilt < 23 and tempytilt >2)  strip.setPixelColor(tempytilt-3, 0);
   }
   else if (effectmode == 7){
+    brightness=127;
+    byte tempytilt = map(ytilt, 0, 254,0, 21);
+
+    for(int i=0; i<strip.numPixels(); i++) strip.setPixelColor(i, 0);
+
+    for( i=0; i<tempytilt; i++)   {
+      if(tempytilt>10){
+        instantspan =  map(tempytilt,10,21,0,SpanWheel(span));
+      }
+      else{
+        instantspan=0;
+      }
+      byte pixel;
+      if (i <= 10){
+        pixel = i*2;
+      }
+      else{
+        pixel = 21-(i-10)*2;
+      }
+      strip.setPixelColor(pixel,  Wheel(color));
+    }
+
 
 
   } 
@@ -645,7 +697,7 @@ void loop() {
         overlaytimer =millis();
         overlaytime=500;
         fade = 7;
-        effectmode = 8;
+        //effectmode = 8;  leave the mode alone for fading back into the same mode
         overlaystatus=overlayprimer;
       }
     }//fadeduring
@@ -668,7 +720,12 @@ void loop() {
         overlaytimer =millis();
         overlaytime=500;
         fade = 0;
-        effectmode=9;
+        effectmode=9;//check later
+        overlaystatus=overlayprimer;
+      } 
+      else if(overlayprimer ==5){ //camera primer
+        overlaytimer =millis();
+        overlaytime=100;
         overlaystatus=overlayprimer;
       }
     }
@@ -931,12 +988,27 @@ void readserial(){
     case SET_SPAN:
     case SET_FADE_BRIGHTNESS:
       serial1bufferpointer=0;
+      serial1payloadsize=2;
+      break;
+    case TRIPLE_TAP:
+      serial1bufferpointer=0;
+      serial1payloadsize=0;
       break;
     }
 
     serial1buffer[serial1bufferpointer] = Serial1.read(); //load a character
-    if(serial1bufferpointer == 2){//all payloads are size 2
+    if(serial1bufferpointer == serial1payloadsize){//all payloads are size 2
       switch (serial1buffer[0]){
+      case TRIPLE_TAP:
+        {
+          if(effectmode == 8){
+            effectmode = 0;
+          }
+          else if(effectmode == 0){
+            effectmode = 8;
+          }
+          break;
+        }
       case SET_COLOR:
         {
           int tempcolor  = (serial1buffer[1] << 6) | (serial1buffer[2] >> 1);
@@ -944,6 +1016,7 @@ void readserial(){
             last_set_color=tempcolor-386;
           }
           else{
+            overlayprimer = 5; //pulse 
             color = tempcolor;
             latch_data = tempcolor;//copy into latch buffer incase a new color comes in while gestureing
             last_set_color = tempcolor;
@@ -979,6 +1052,11 @@ void readserial(){
         else{
           fade = serial1buffer[1];
           last_set_fade=serial1buffer[1];
+          //prime overlay on pacman open
+          if (fade == 0){
+            overlayprimer = 3;
+     
+          }
           Serial1.write(SET_FADE_BRIGHTNESS);
           Serial1.write(fade+8);
           Serial1.write(brightness+127);//notused padding
@@ -1022,6 +1100,11 @@ void readserial(){
           temp=( serial2buffer[3] << 6) | (serial2buffer[4] >> 1);
           span=temp;
           latch_data = temp;//copy into latch buffer incase a new color comes in while gestureing
+          //turn on to static mode full bright when disabled
+          if (fade == 7){
+            effectmode=8;
+            fade = 0;
+          }
           break;
         }
       case SET_FRAME1:
@@ -1037,6 +1120,11 @@ void readserial(){
         {
           memcpy(frame2,&serial2buffer[1],sizeof(frame2));
           message_timer=millis();
+          //turn on to static mode full bright when disabled
+          if (fade == 7){
+            effectmode=8;
+          }
+          fade = 0;
           break;
         }
       default:
@@ -1508,6 +1596,7 @@ void updatedisplay(){
     }
   }
 
+  //flash LEDs on incoming text
   if(ring_timer + RINGTIMEOUT > millis() ||  (ring_timer + RINGTIMEOUT*2 < millis() & ring_timer + RINGTIMEOUT *3 > millis()   )){
     if((millis()  >> 6) & 0x01 ){ 
       gpio=0x0F;
@@ -1522,6 +1611,16 @@ void updatedisplay(){
   fade = tempfade;
   brightness = tempbrightness;
 }
+
+
+
+
+
+
+
+
+
+
 
 
 

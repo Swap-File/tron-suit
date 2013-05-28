@@ -44,10 +44,9 @@ int last_set_span=0;
 byte last_set_brightness=127;
 byte last_set_fade=0;
 
-
-
-
+//these two can overlap
 #define SET_RAINBOW 0x19  //no confirmation needed
+#define TRIPLE_TAP 0x19  //no sending needed
 
 #define SET_CONFIRMED 0x1F
 
@@ -113,7 +112,7 @@ unsigned long z_latch_time_cooldown = 0; //time of first latch for input debounc
 byte z_latch = 0; //keeps track of latching status
 byte rotation_status  =0;  
 int z_latch_span;
-
+unsigned long tap_time = 0; //time of first latch for input debounce
 //overlay
 int overlaytimer = 0;  //blinks the LED for modes
 
@@ -267,45 +266,48 @@ void loop()
 
   byte intsource = adxl.getInterruptSource();
   if ((intsource >> ADXL345_INT_DOUBLE_TAP_BIT) & 1)  {
-    fade=0;
-    span=0;
-    instantspan=0;
-    z_latch = 0;
-
-    for(int i=0; i<16; i++) {
-      //start at top of disc and work around
-      strip.setPixelColor((i+xy_angle+8 )%16,Wheel(384)); // Set new pixel 'on'
-      strip.showCompileTime<ClockPin, DataPin>();              // Refresh LED states
-      delay(50);
-    }
-
-    digitalWrite(LIGHTS, HIGH );
-    attachInterrupt(0, TSC_Count, RISING);
-    Timer1.attachInterrupt(TSC_Callback); 
-
-    delay(1000);
-
-    digitalWrite(LIGHTS,LOW );
-    if (g_array[0]+g_array[1]+g_array[2] <20){
-      fade=7;
+    if (millis() - tap_time < 200 ){
+      Serial.write(TRIPLE_TAP);
     }
     else{
-      color = readcolor();
+      fade=0;
+      span=0;
+      instantspan=0;
+      z_latch = 0;
 
+      for(int i=0; i<16; i++) {
+        //start at top of disc and work around
+        strip.setPixelColor((i+xy_angle+8 )%16,Wheel(384)); // Set new pixel 'on'
+        strip.showCompileTime<ClockPin, DataPin>();              // Refresh LED states
+        delay(50);
+      }
+
+      digitalWrite(LIGHTS, HIGH );
+      attachInterrupt(0, TSC_Count, RISING);
+      Timer1.attachInterrupt(TSC_Callback); 
+
+      delay(1000);
+
+      digitalWrite(LIGHTS,LOW );
+      if (g_array[0]+g_array[1]+g_array[2] <20){
+        fade=7;
+      }
+      else{
+        color = readcolor();
+
+      }
+      //start at top of disc and work around
+      for(int i=strip.numPixels()+1; i>-1; i--) {
+        strip.setPixelColor((i +xy_angle+8)%16,Wheel(color)); // Set new pixel 'on'
+        strip.showCompileTime<ClockPin, DataPin>();              // Refresh LED states
+        delay(50);
+      }
+
+      z_latch = 0;
+      currentmode=0;
     }
-    //start at top of disc and work around
-    for(int i=strip.numPixels()+1; i>-1; i--) {
-      strip.setPixelColor((i +xy_angle+8)%16,Wheel(color)); // Set new pixel 'on'
-      strip.showCompileTime<ClockPin, DataPin>();              // Refresh LED states
-      delay(50);
-    }
-
-    z_latch = 0;
-    currentmode=0;
-
   }
   if ((intsource >> ADXL345_INT_SINGLE_TAP_BIT) & 1)  {
-
   }
   if ((intsource >> ADXL345_INT_INACTIVITY_BIT) & 1)  {
     // currentmode=0;
@@ -371,7 +373,7 @@ void loop()
       case SET_FADE_BRIGHTNESS: //never setting brightness from disc,always reply with std data for confirmation
         if (serialbuffer[1] > 7 ){
           last_set_fade=serialbuffer[1]-8;
-        
+
         } 
         else{
           fade = serialbuffer[1];
@@ -498,10 +500,12 @@ void loop()
       z_latch_time_cooldown = millis();
       z_latch_angle = xy_angle;
       z_latch = 2;
+    
     }
     else if (z_latch == 3 ||  z_latch == 4){  //disable latched mode
       z_latch_time_cooldown = millis();
       z_latch =0;
+             tap_time = millis();
     }
   }
   //detect low z motion 
@@ -512,6 +516,7 @@ void loop()
     if (z_latch == 2){
       rotation_status =0;
       z_latch = 3;
+      tap_time = millis();
     }
   }
 
@@ -610,6 +615,7 @@ void loop()
     }
   }
 
+
   //updates the strip
   //i must be global for rainbow colors
   //angle is 0 to 15  22.5 degrees each
@@ -630,7 +636,7 @@ void loop()
       strip.setPixelColor((z_latch_angle + 8) % 16,0);
     }
   }
-  else  if (z_latch ==4){
+  else  if (z_latch ==4 ){
     strip.setPixelColor(z_latch_angle ,Wheel(384));
     strip.setPixelColor((z_latch_angle + 8) % 16,Wheel(384));
   }
@@ -775,6 +781,9 @@ uint32_t Wheel(uint16_t WheelPos){
   b = b*brightness/127;
   return(strip.Color( r >> fade ,g >> fade,b >> fade));
 }
+
+
+
 
 
 

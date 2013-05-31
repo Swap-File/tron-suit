@@ -112,8 +112,10 @@ boolean textmessagemode=false;
 
 
 //modes
+byte effectbuffer_mode = 0;
+byte effectbuffer_ratchet = 0;
 byte effectmode = 0;
-byte outputmode = 6;
+byte outputmode = 0;
 byte brightness=0;
 byte overlaybrightness=0;
 byte fade=0;
@@ -181,7 +183,8 @@ byte batterywarning=0;
 
 unsigned long nunchuck_update=0;
 
-LPD8806 strip = LPD8806(20, dataPin, clockPin);
+LPD8806 strip_buffer_1 = LPD8806(20, dataPin, clockPin);
+LPD8806 strip_buffer_2 = LPD8806(20, dataPin, clockPin);
 
 ArduinoNunchuk nunchuk = ArduinoNunchuk();
 MovingAverage xfilter = MovingAverage();
@@ -193,7 +196,8 @@ MovingAverage yfilter = MovingAverage();
 
 void setup() {
 
-  strip.begin();
+  strip_buffer_1.begin();
+  strip_buffer_2.begin();
   nunchuk.init();
   Serial.begin(115200);  //debug
   Serial1.begin(115200);  //Wixel
@@ -216,6 +220,9 @@ void setup() {
 
   frame1[0]=0;
   frame2[0]=0;
+
+
+
 }
 
 
@@ -245,10 +252,10 @@ void loop() {
   sendserial(); //send serial data
 
   //limit nunchuck updating so not to flood the chuk
-  if ( millis() - nunchuck_update > 50){
-    nunchuk.update();       //read data from nunchuck
-    nunchuck_update=millis();
-  }
+  // if ( millis() - nunchuck_update > 100){
+  nunchuk.update();       //read data from nunchuck
+  //  nunchuck_update=millis();
+  //}
 
   nunchuckparse();  //filter inputs and set D-pad boolean mappings
 
@@ -282,6 +289,7 @@ void loop() {
         if (fade!=7 && effectmode !=8){
           overlayprimer=2;
         }
+
       }
       dirpressed= true;       
     }
@@ -322,7 +330,12 @@ void loop() {
 
     //single tap effect modes
     else { 
+
       if(overlayprimer!=4){
+        //reset buffer mode on effect changes
+        if((dpad & 0x0F) != 0x00){
+          effectbuffer_mode=0;
+        }
         switch (dpad){
         case DPAD_LEFT:
           effectmode =2;
@@ -407,13 +420,12 @@ void loop() {
 
   //basic setttings and span gestures
   if (zButtonDelayed){
-
     switch (dpad){
     case DPAD_LEFT:
-
+      effectbuffer_mode=1;
       break;
     case DPAD_RIGHT:
-
+      effectbuffer_mode = 3;
       break;
     case DPAD_UP:
       message_timer=millis();
@@ -520,33 +532,73 @@ void loop() {
   } 
 
 
-
   //generate effects array based on mode
   if(effectmode == 0){
+    //buffer modes 3 and 4 are ugly with effect 0 so force switch it
+    if (effectbuffer_mode != 0 || effectbuffer_mode != 1 || effectbuffer_mode != 2){
+      effectbuffer_mode = 1;
+    }
     averagespan =0;
+
     for(int i=0; i<6; i++)   {
       brightness = map(spectrumValue[i],spectrumValueMin[i] ,spectrumValueMax[i],0,127); 
-      if (brightness > 64){
-        instantspan =  map(brightness,64,127,0,SpanWheel(span));
-        averagespan = averagespan + instantspan;
-      }
       if(i==5){
-        strip.setPixelColor(9,  Wheel(color));
-        strip.setPixelColor(10,  Wheel(color));
+        if (brightness > 63){
+          instantspan =  map(brightness,64,127,0,SpanWheel(span));
+          averagespan = averagespan + instantspan;
+          strip_buffer_1.setPixelColor(9,  Wheel(color));
+          strip_buffer_1.setPixelColor(10,  Wheel(color));
+          instantspan= map(brightness,64,127,SpanWheel(span),0);
+          strip_buffer_2.setPixelColor(9,  Wheel(color));
+          strip_buffer_2.setPixelColor(10,  Wheel(color));
+        }
+        else{
+          instantspan =0;
+          strip_buffer_1.setPixelColor(9,  Wheel(color));
+          strip_buffer_1.setPixelColor(10,  Wheel(color));
+          instantspan= SpanWheel(span);
+          strip_buffer_2.setPixelColor(9,  Wheel(color));
+          strip_buffer_2.setPixelColor(10,  Wheel(color));
+        }
       }
       else{
-        strip.setPixelColor(2*i,  Wheel(color));
-        strip.setPixelColor(19-2*i,  Wheel(color));
+        if (brightness > 63){
+          instantspan =  map(brightness,64,127,0,SpanWheel(span));
+          averagespan = averagespan + instantspan;
+          strip_buffer_1.setPixelColor(2*i,  Wheel(color));
+          strip_buffer_1.setPixelColor(19-2*i,  Wheel(color));
+          instantspan= map(brightness,64,127,SpanWheel(span),0);
+          strip_buffer_2.setPixelColor(2*i,  Wheel(color));
+          strip_buffer_2.setPixelColor(19-2*i,  Wheel(color));
+        }
+        else{
+          instantspan =0;
+          strip_buffer_1.setPixelColor(2*i,  Wheel(color));
+          strip_buffer_1.setPixelColor(19-2*i,  Wheel(color));
+          instantspan= SpanWheel(span);
+          strip_buffer_2.setPixelColor(2*i,  Wheel(color));
+          strip_buffer_2.setPixelColor(19-2*i,  Wheel(color));
+        }
       }
       if (i<4){
         brightness = map((spectrumValue[i+1] + spectrumValue[i]) >> 1,(spectrumValueMin[(i)] + spectrumValueMin[i+1]) >> 1 ,(spectrumValueMax[(i)] + spectrumValueMax[(i)+1]) >> 1,0,127); 
-        if (brightness > 64){
+        if (brightness > 63){
           instantspan =  map(brightness,64,127,0,SpanWheel(span));
           averagespan = averagespan + instantspan;
-
+          strip_buffer_1.setPixelColor(19-(2*i+1),  Wheel(color));
+          strip_buffer_1.setPixelColor(2*i+1,  Wheel(color));
+          instantspan= map(brightness,64,127,SpanWheel(span),0);
+          strip_buffer_2.setPixelColor(19-(2*i+1),  Wheel(color));
+          strip_buffer_2.setPixelColor(2*i+1,  Wheel(color));
         }
-        strip.setPixelColor(19-(2*i+1),  Wheel(color));
-        strip.setPixelColor(2*i+1,  Wheel(color));
+        else{
+          instantspan =0;
+          strip_buffer_1.setPixelColor(19-(2*i+1),  Wheel(color));
+          strip_buffer_1.setPixelColor(2*i+1,  Wheel(color));
+          instantspan= SpanWheel(span);
+          strip_buffer_2.setPixelColor(19-(2*i+1),  Wheel(color));
+          strip_buffer_2.setPixelColor(2*i+1,  Wheel(color));
+        }
       }
     }
   }
@@ -556,137 +608,153 @@ void loop() {
       instantspan =  map(brightness,64,127,0,SpanWheel(span));
       averagespan = averagespan + instantspan;
     }
-    strip.setPixelColor(0,  Wheel(color));
+    strip_buffer_1.setPixelColor(0,  Wheel(color));
     brightness = map(spectrumValue[0]*.6,spectrumValueMin[0]*.6,spectrumValueMax[0]*.6,0,127); 
     if (brightness > 64){
       instantspan =  map(brightness,64,127,0,SpanWheel(span));
       averagespan = averagespan + instantspan;
     }
-    strip.setPixelColor(1,  Wheel(color));
+    strip_buffer_1.setPixelColor(1,  Wheel(color));
     for(int i=0; i<5; i++)   {
       brightness = map(spectrumValue[i],spectrumValueMin[i] ,spectrumValueMax[i],0,127); 
       if (brightness > 64){
         instantspan =  map(brightness,64,127,0,SpanWheel(span));
         averagespan = averagespan + instantspan;
       }
-      strip.setPixelColor(i*3+2,  Wheel(color));
+      strip_buffer_1.setPixelColor(i*3+2,  Wheel(color));
       brightness = map(spectrumValue[i+1] * .3 + spectrumValue[i] * .6,spectrumValueMin[i] * .6+ spectrumValueMin[i+1] * .3 ,spectrumValueMax[i] *.6 + spectrumValueMax[i+1] * .3,0,127); 
       if (brightness > 64){
         instantspan =  map(brightness,64,127,0,SpanWheel(span));
         averagespan = averagespan + instantspan;
       }
-      strip.setPixelColor(i*3+3,  Wheel(color));
+      strip_buffer_1.setPixelColor(i*3+3,  Wheel(color));
       brightness = map(spectrumValue[i+1] * .6 + spectrumValue[i] * .3,spectrumValueMin[i] * .3+ spectrumValueMin[i+1] * .6 ,spectrumValueMax[i] *.3 + spectrumValueMax[i+1] * .6,0,127); 
       if (brightness > 64){
         instantspan =  map(brightness,64,127,0,SpanWheel(span));
         averagespan = averagespan + instantspan;
       }
-      strip.setPixelColor(i*3+4,  Wheel(color));
+      strip_buffer_1.setPixelColor(i*3+4,  Wheel(color));
     }
     brightness = map(spectrumValue[5],spectrumValueMin[5] ,spectrumValueMax[5],0,127); 
     if (brightness > 64){
       instantspan =  map(brightness,64,127,0,SpanWheel(span));
       averagespan = averagespan + instantspan;
     }
-    strip.setPixelColor(17,  Wheel(color));
+    strip_buffer_1.setPixelColor(17,  Wheel(color));
     brightness = map(spectrumValue[5]*.6,spectrumValueMin[5]*.6,spectrumValueMax[5]*.6,0,127); 
     if (brightness > 64){
       instantspan =  map(brightness,64,127,0,SpanWheel(span));
       averagespan = averagespan + instantspan;
     }
-    strip.setPixelColor(18,  Wheel(color));
+    strip_buffer_1.setPixelColor(18,  Wheel(color));
     brightness = map(spectrumValue[5]*.3,spectrumValueMin[5]*.3,spectrumValueMax[5]*.3,0,127); 
     if (brightness > 64){
       instantspan =  map(brightness,64,127,0,SpanWheel(span));
       averagespan = averagespan + instantspan;
     }
-    strip.setPixelColor(19,  Wheel(color));
+    strip_buffer_1.setPixelColor(19,  Wheel(color));
   }
 
   else if (effectmode == 2){
+
     brightness = map(ytilt, 0, 254,0, 127);
 
     instantspan =  map(brightness,0,127,0,SpanWheel(span));
-
-    for( i=0; i<strip.numPixels(); i++)     {
-      strip.setPixelColor(i,  Wheel(color));
+    for( i=0; i<strip_buffer_1.numPixels(); i++)     {
+      strip_buffer_1.setPixelColor(i,  Wheel(color));
     }
+
+    instantspan =  map(brightness,0,127,SpanWheel(span),0);
+    for( i=0; i<strip_buffer_2.numPixels(); i++)     {
+      strip_buffer_2.setPixelColor(i,  Wheel(color));
+    }
+
+
   }
   else if (effectmode == 3){
     brightness=127;
     byte tempytilt = map(ytilt, 0, 254,0, 20);
+
     instantspan =  map(tempytilt,0,20,0,SpanWheel(span));
     for( i=0; i<tempytilt; i++)   {
-      strip.setPixelColor(i,  Wheel(color));
+      strip_buffer_1.setPixelColor(i,  Wheel(color));
     }
-    for(int i=tempytilt; i<strip.numPixels(); i++) strip.setPixelColor(i, 0);
+    for(int i=tempytilt; i<strip_buffer_1.numPixels(); i++) strip_buffer_1.setPixelColor(i, 0);
+
+    instantspan =  map(tempytilt,0,20,SpanWheel(span),0);
+    for( i=0; i<tempytilt; i++)   {
+      strip_buffer_2.setPixelColor(i,  Wheel(color));
+    }
+    for(int i=tempytilt; i<strip_buffer_2.numPixels(); i++) strip_buffer_2.setPixelColor(i, 0);
+
   }
   else if (effectmode == 4){
     brightness=127;
     byte tempytilt = map(ytilt, 0, 254,0, 40);
     instantspan =  map(tempytilt,0,40,0,SpanWheel(span));
     if (tempytilt < 21){
-      for( i=0; i<tempytilt; i++)  strip.setPixelColor(i, Wheel(color));
-      for(int i=tempytilt; i<strip.numPixels(); i++) strip.setPixelColor(i, 0);
+      for( i=0; i<tempytilt; i++)  strip_buffer_1.setPixelColor(i, Wheel(color));
+      for(int i=tempytilt; i<strip_buffer_1.numPixels(); i++) strip_buffer_1.setPixelColor(i, 0);
     }
     else{
       tempytilt = tempytilt -21;
-      for( i=20; i>tempytilt; i--)  strip.setPixelColor(i,Wheel(color));
-      for(int i=tempytilt; i>-1; i--) strip.setPixelColor(i, 0);
+      for( i=20; i>tempytilt; i--)  strip_buffer_1.setPixelColor(i,Wheel(color));
+      for(int i=tempytilt; i>-1; i--) strip_buffer_1.setPixelColor(i, 0);
+    }
+    tempytilt = map(ytilt, 0, 254,0, 40);
+    instantspan =  map(tempytilt,0,40,SpanWheel(span),0);
+    if (tempytilt < 21){
+      for( i=0; i<tempytilt; i++)  strip_buffer_2.setPixelColor(i, Wheel(color));
+      for(int i=tempytilt; i<strip_buffer_2.numPixels(); i++) strip_buffer_2.setPixelColor(i, 0);
+    }
+    else{
+      tempytilt = tempytilt -21;
+      for( i=20; i>tempytilt; i--)  strip_buffer_2.setPixelColor(i,Wheel(color));
+      for(int i=tempytilt; i>-1; i--) strip_buffer_2.setPixelColor(i, 0);
     }
   }
   else if (effectmode ==5){
     brightness=127;
-    for( i=0; i<strip.numPixels(); i++) strip.setPixelColor(i, 0);
     byte tempytilt = map(ytilt, 0,254,0, 21);
-    instantspan =  map(tempytilt,0,21,0,SpanWheel(span));
-    if (tempytilt < 21 and tempytilt >0)  strip.setPixelColor(tempytilt-1, Wheel(color));
 
+    for( i=0; i<strip_buffer_1.numPixels(); i++) strip_buffer_1.setPixelColor(i, 0);
+    instantspan =  map(tempytilt,0,21,0,SpanWheel(span));
+    if (tempytilt < 21 and tempytilt >0)  strip_buffer_1.setPixelColor(tempytilt-1, Wheel(color));
+
+    for( i=0; i<strip_buffer_2.numPixels(); i++) strip_buffer_2.setPixelColor(i, 0);
+    instantspan =  map(tempytilt,0,21,SpanWheel(span),0);
+    if (tempytilt < 21 and tempytilt >0)  strip_buffer_2.setPixelColor(tempytilt-1, Wheel(color));
   }
   else if (effectmode == 6){
     brightness=127;
-    for( i=0; i<strip.numPixels(); i++) strip.setPixelColor(i, Wheel(color));
+    for( i=0; i<strip_buffer_1.numPixels(); i++) strip_buffer_1.setPixelColor(i, Wheel(color));
     byte tempytilt = map(ytilt, 0, 254,0, 23);
     instantspan =  map(tempytilt,0,21,0,SpanWheel(span));
-    if (tempytilt < 21 and tempytilt >0)  strip.setPixelColor(tempytilt-1, 0);
-    if (tempytilt < 22 and tempytilt >1)  strip.setPixelColor(tempytilt-2, 0);
-    if (tempytilt < 23 and tempytilt >2)  strip.setPixelColor(tempytilt-3, 0);
+    if (tempytilt < 21 and tempytilt >0)  strip_buffer_1.setPixelColor(tempytilt-1, 0);
+    if (tempytilt < 22 and tempytilt >1)  strip_buffer_1.setPixelColor(tempytilt-2, 0);
+    if (tempytilt < 23 and tempytilt >2)  strip_buffer_1.setPixelColor(tempytilt-3, 0);
+
+    instantspan =  map(tempytilt,0,21,SpanWheel(span),0);
+    if (tempytilt < 21 and tempytilt >0)  strip_buffer_2.setPixelColor(tempytilt-1, 0);
+    if (tempytilt < 22 and tempytilt >1)  strip_buffer_2.setPixelColor(tempytilt-2, 0);
+    if (tempytilt < 23 and tempytilt >2)  strip_buffer_2.setPixelColor(tempytilt-3, 0);
+
   }
   else if (effectmode == 7){
-    brightness=127;
-    byte tempytilt = map(ytilt, 0, 254,0, 21);
 
-    for(int i=0; i<strip.numPixels(); i++) strip.setPixelColor(i, 0);
 
-    for( i=0; i<tempytilt; i++)   {
-      if(tempytilt>10){
-        instantspan =  map(tempytilt,10,21,0,SpanWheel(span));
-      }
-      else{
-        instantspan=0;
-      }
-      byte pixel;
-      if (i <= 10){
-        pixel = i*2;
-      }
-      else{
-        pixel = 21-(i-10)*2;
-      }
-      strip.setPixelColor(pixel,  Wheel(color));
-    }
+
 
 
 
   } 
   else if (effectmode == 8){
     brightness=127;
-    for( i=0; i<strip.numPixels(); i++)     {
+    for( i=0; i<strip_buffer_1.numPixels(); i++)     {
       instantspan =  map(i,0,19,0,SpanWheel(span));
-      strip.setPixelColor(i,  Wheel(color));
+      strip_buffer_1.setPixelColor(i,  Wheel(color));
     }
-    //for display on screen only
-    //brightness = map(ytilt, 0, 254,0, 127);
-    //instantspan =  map(brightness,0,127,0,SpanWheel(span));
+
   }
 
 
@@ -755,10 +823,10 @@ void loop() {
       r =r| (tempcolor>> 8);
       g  =g| (tempcolor>> 16);
       b = b|(tempcolor>>0) ;
-      for( i=0; i<3*strip.numPixels(); i++)     {
-        strip.pixels[i*3+1] = strip.pixels[i*3+1] | r ;
-        strip.pixels[i*3]= strip.pixels[i*3] | g;
-        strip.pixels[i*3+2] = strip.pixels[i*3+2] |b  ;
+      for( i=0; i<3*strip_buffer_1.numPixels(); i++)     {
+        strip_buffer_1.pixels[i*3+1] = strip_buffer_1.pixels[i*3+1] | r ;
+        strip_buffer_1.pixels[i*3]= strip_buffer_1.pixels[i*3] | g;
+        strip_buffer_1.pixels[i*3+2] = strip_buffer_1.pixels[i*3+2] |b  ;
       }
       fade=tempfade;
       brightness=tempbrightness;
@@ -880,36 +948,129 @@ int gesture(int inputvalue, int itemrange){
 
 
 void output(byte w){
-  if (bitRead(w,0)) digitalWrite(strip_1,LOW);
-  if (bitRead(w,1)) digitalWrite(strip_2,LOW);
-  if (bitRead(w,2)) digitalWrite(strip_3,LOW);
-  if (bitRead(w,3)) digitalWrite(strip_4,LOW);
 
-  if (w != 0x00){
-    strip.showCompileTime<clockPin, dataPin>();
-    digitalWrite(strip_1,HIGH);
-    digitalWrite(strip_2,HIGH);
-    digitalWrite(strip_3,HIGH);
-    digitalWrite(strip_4,HIGH);
-  }
-
-  if (!bitRead(w,0)) digitalWrite(strip_1,LOW);
-  if (!bitRead(w,1)) digitalWrite(strip_2,LOW);
-  if (!bitRead(w,2)) digitalWrite(strip_3,LOW);
-  if (!bitRead(w,3)) digitalWrite(strip_4,LOW);
-
-  if (w != 0x0F){ 
-    if (effectmode == 0){
-      strip.showCompileTimeFold<clockPin, dataPin>();
+  digitalWrite(strip_1,LOW);
+  if (bitRead(w,0)){
+    if (effectbuffer_mode == 1 || effectbuffer_mode == 3){
+      strip_buffer_2.showCompileTime<clockPin, dataPin>(); 
     }
     else{
-      strip.showCompileTimeFlip<clockPin, dataPin>();
+      strip_buffer_1.showCompileTime<clockPin, dataPin>(); 
     }
-    digitalWrite(strip_1,HIGH);
-    digitalWrite(strip_2,HIGH);
-    digitalWrite(strip_3,HIGH);
-    digitalWrite(strip_4,HIGH); 
   }
+  else{
+    if (effectmode == 0){
+      if (effectbuffer_mode == 1 || effectbuffer_mode == 3){
+        strip_buffer_2.showCompileTimeFold<clockPin, dataPin>();
+      }
+      else{
+        strip_buffer_1.showCompileTimeFold<clockPin, dataPin>();
+      }
+    }
+    else{
+      if (effectbuffer_mode == 1 || effectbuffer_mode == 3){
+        strip_buffer_2.showCompileTimeFlip<clockPin, dataPin>();
+      }
+      else{
+        strip_buffer_1.showCompileTimeFlip<clockPin, dataPin>();
+      }
+    }
+  }
+  digitalWrite(strip_1,HIGH);
+
+
+
+  digitalWrite(strip_2,LOW);
+  if (bitRead(w,1)){
+    if (effectbuffer_mode == 2 || effectbuffer_mode == 4){
+      strip_buffer_2.showCompileTime<clockPin, dataPin>(); 
+    }
+    else{
+      strip_buffer_1.showCompileTime<clockPin, dataPin>(); 
+    }
+  }
+  else{
+    if (effectmode == 0){
+      if (effectbuffer_mode == 2 || effectbuffer_mode == 4){
+        strip_buffer_2.showCompileTimeFold<clockPin, dataPin>();
+      }
+      else{
+        strip_buffer_1.showCompileTimeFold<clockPin, dataPin>();
+      }
+    }
+    else{
+      if (effectbuffer_mode == 2 || effectbuffer_mode == 4){
+        strip_buffer_2.showCompileTimeFlip<clockPin, dataPin>();
+      }
+      else{
+        strip_buffer_1.showCompileTimeFlip<clockPin, dataPin>();
+      }
+    }
+  }
+  digitalWrite(strip_2,HIGH);
+
+
+
+  digitalWrite(strip_3,LOW);
+  if (bitRead(w,2)){
+    if (effectbuffer_mode == 2 || effectbuffer_mode == 3){
+      strip_buffer_2.showCompileTime<clockPin, dataPin>(); 
+    }
+    else{
+      strip_buffer_1.showCompileTime<clockPin, dataPin>(); 
+    }
+  }
+  else{
+    if (effectmode == 0){
+      if (effectbuffer_mode == 2 || effectbuffer_mode == 3){
+        strip_buffer_2.showCompileTimeFold<clockPin, dataPin>();
+      }
+      else{
+        strip_buffer_1.showCompileTimeFold<clockPin, dataPin>();
+      }
+    }
+    else{
+      if (effectbuffer_mode == 2 || effectbuffer_mode == 3){
+        strip_buffer_2.showCompileTimeFlip<clockPin, dataPin>();
+      }
+      else{
+        strip_buffer_1.showCompileTimeFlip<clockPin, dataPin>();
+      }
+    }
+  }
+  digitalWrite(strip_3,HIGH);
+
+
+
+  digitalWrite(strip_4,LOW);
+  if (bitRead(w,3)){
+    if (effectbuffer_mode == 1 || effectbuffer_mode == 4){
+      strip_buffer_2.showCompileTime<clockPin, dataPin>(); 
+    }
+    else{
+      strip_buffer_1.showCompileTime<clockPin, dataPin>(); 
+    }
+  }
+  else{
+    if (effectmode == 0){
+      if (effectbuffer_mode == 1 || effectbuffer_mode == 4){
+        strip_buffer_2.showCompileTimeFold<clockPin, dataPin>();
+      }
+      else{
+        strip_buffer_1.showCompileTimeFold<clockPin, dataPin>();
+      }
+    }
+    else{
+      if (effectbuffer_mode == 1 || effectbuffer_mode == 4){
+        strip_buffer_2.showCompileTimeFlip<clockPin, dataPin>();
+      }
+      else{
+        strip_buffer_1.showCompileTimeFlip<clockPin, dataPin>();
+      }
+    }
+  }
+  digitalWrite(strip_4,HIGH);
+
 }
 
 
@@ -974,7 +1135,7 @@ uint32_t Wheel(uint16_t WheelPos){
   r = r*brightness/127;
   g = g*brightness/127;
   b = b*brightness/127;
-  return(strip.Color( r >> fade ,g >> fade,b >> fade));
+  return(strip_buffer_1.Color( r >> fade ,g >> fade,b >> fade));
 }
 
 
@@ -1055,7 +1216,7 @@ void readserial(){
           //prime overlay on pacman open
           if (fade == 0){
             overlayprimer = 3;
-     
+            effectmode=8;
           }
           Serial1.write(SET_FADE_BRIGHTNESS);
           Serial1.write(fade+8);
@@ -1105,6 +1266,7 @@ void readserial(){
             effectmode=8;
             fade = 0;
           }
+          ring_timer=millis();
           break;
         }
       case SET_FRAME1:
@@ -1484,17 +1646,17 @@ void updatedisplay(){
     //update 2nd  line of LCD screen R values
 
     for (byte i=0; i<20; i++ ) {
-      Serial3.write((strip.pixels[i*3+1] & 0x7F)>>4);
+      Serial3.write((strip_buffer_1.pixels[i*3+1] & 0x7F)>>4);
     }
 
     // update 3rd  line of LCD screen G values
     for (byte i=0; i<20; i++ ) {
-      Serial3.write((strip.pixels[i*3]& 0x7F)>>4);
+      Serial3.write((strip_buffer_1.pixels[i*3]& 0x7F)>>4);
     }
 
     //update 4th  line of LCD screen B values
     for (byte i=0; i<20; i++ ) {
-      Serial3.write((strip.pixels[i*3+2]& 0x7F) >>4 );
+      Serial3.write((strip_buffer_1.pixels[i*3+2]& 0x7F) >>4 );
     }
 
   }
@@ -1570,13 +1732,29 @@ void updatedisplay(){
       //reset fist pump timer on status change
       if(pumped== true){
         fist_pump_timer= millis();
+        if (effectbuffer_mode == 1){
+          effectbuffer_mode =2;
+        }
+        else if(effectbuffer_mode ==2){
+          effectbuffer_mode =1;
+        }
+        else if(effectbuffer_mode ==3){
+          effectbuffer_mode =4;
+        }
+        else if(effectbuffer_mode ==4){
+          effectbuffer_mode =3;
+        }
       }
       pumped=false;
     }
     else if (ytilt == 254 ){
-      //reset fist pump timer on statu schange
+      //reset fist pump timer on status change and ratchet effects
       if(pumped== false){
         fist_pump_timer= millis();
+
+
+
+
       }
       pumped=true;
     }
@@ -1611,6 +1789,40 @@ void updatedisplay(){
   fade = tempfade;
   brightness = tempbrightness;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

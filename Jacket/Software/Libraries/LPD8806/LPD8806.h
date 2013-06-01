@@ -68,6 +68,13 @@ public:
     MAP_ARDUINO_PIN_TO_PORT_REG(ClockPin),
     MAP_ARDUINO_PIN_TO_PORT_REG(DataPin));
   }
+   template<unsigned int ClockPin, unsigned int DataPin>
+    void showCompileTimeBlank()
+  {
+    showCompileTime<MAP_ARDUINO_PIN_TO_PORT_PIN(ClockPin), MAP_ARDUINO_PIN_TO_PORT_PIN(DataPin)>(
+    MAP_ARDUINO_PIN_TO_PORT_REG(ClockPin),
+    MAP_ARDUINO_PIN_TO_PORT_REG(DataPin));
+  }
 #undef MAP_ARDUINO_PIN_TO_PORT_PIN
 #undef MAP_ARDUINO_PIN_TO_PORT_REG
 #else
@@ -102,7 +109,13 @@ public:
     MAP_ARDUINO_PIN_TO_PORT_REG(ClockPin),
     MAP_ARDUINO_PIN_TO_PORT_REG(DataPin));
   }
-
+  template<unsigned int ClockPin, unsigned int DataPin>
+    void showCompileTimeBlank()
+  {
+    showCompileTimeBlank<MAP_ARDUINO_PIN_TO_PORT_PIN(ClockPin), MAP_ARDUINO_PIN_TO_PORT_PIN(DataPin)>(
+    MAP_ARDUINO_PIN_TO_PORT_REG(ClockPin),
+    MAP_ARDUINO_PIN_TO_PORT_REG(DataPin));
+  }
 
 #undef MAP_ARDUINO_PIN_TO_PORT_PIN
 #undef MAP_ARDUINO_PIN_TO_PORT_REG
@@ -158,15 +171,58 @@ public:
     while (--RemainingLatchBytes);
 
   }
+  template<unsigned int ClockPin, unsigned int DataPin>
+    void showCompileTimeBlank(volatile uint8_t& ClockRegister, volatile uint8_t& DataRegister)
+  {
+    const byte LED_DATA_MASK = 1 << DataPin;
+       
+    byte RemainingLatchBytes = numLEDs * 3;
+    do 
+    {
+       DataRegister &= ~LED_DATA_MASK;
+      PulseClockLine<ClockPin>(ClockRegister);
+      PulseClockLine<ClockPin>(ClockRegister);
+      PulseClockLine<ClockPin>(ClockRegister);
+      PulseClockLine<ClockPin>(ClockRegister);
+      PulseClockLine<ClockPin>(ClockRegister);
+      PulseClockLine<ClockPin>(ClockRegister);
+      PulseClockLine<ClockPin>(ClockRegister);
+       DataRegister |= LED_DATA_MASK;
+      PulseClockLine<ClockPin>(ClockRegister);
+    } 
+    while (--RemainingLatchBytes);
+    
+    // Clear the data line while we clock out the latching pattern
 
+    DataRegister &= ~LED_DATA_MASK;
+
+    // All of the original data had the high bit set in each byte.  To latch
+    // the color in, we need to clock out another LED worth of 0's for every
+    // 64 LEDs in the strip apparently.
+    RemainingLatchBytes = ((numLEDs + 63) / 64) * 3;
+    do 
+    {
+      PulseClockLine<ClockPin>(ClockRegister);
+      PulseClockLine<ClockPin>(ClockRegister);
+      PulseClockLine<ClockPin>(ClockRegister);
+      PulseClockLine<ClockPin>(ClockRegister);
+
+      PulseClockLine<ClockPin>(ClockRegister);
+      PulseClockLine<ClockPin>(ClockRegister);
+      PulseClockLine<ClockPin>(ClockRegister);
+      PulseClockLine<ClockPin>(ClockRegister);
+    } 
+    while (--RemainingLatchBytes);
+
+  }
 
   // Note: Pin template params need to be relative to their port (0..7), not Arduino pinout numbers
   template<unsigned int ClockPin, unsigned int DataPin>
     void showCompileTimeFold(volatile uint8_t& ClockRegister, volatile uint8_t& DataRegister)
   {
-// Clock out the color for first half of mirror
+    // Clock out the color for first half of mirror
 
-     byte*   DataPtr = pixels + ((numLEDs / 2) * 3);
+      byte*   DataPtr = pixels + ((numLEDs / 2) * 3);
     byte*   EndDataPtr = pixels + (numLEDs * 3);
 
 
@@ -186,7 +242,7 @@ public:
     }
     while (DataPtr != EndDataPtr);
 
-      // Clock out the color for second half of mirror
+    // Clock out the color for second half of mirror
     DataPtr = pixels;
     EndDataPtr = pixels + ((numLEDs / 2) * 3);  
 
@@ -240,16 +296,16 @@ public:
   {
     // Start at the end, and work backwards
 
-      byte*  DataPtr = pixels + (numLEDs * 3);
-      byte*  EndDataPtr = pixels;
+    byte*  DataPtr = pixels + (numLEDs * 3);
+    byte*  EndDataPtr = pixels;
 
 
     do
-    
+
     {
       DataPtr = DataPtr - 3;
       byte CurrentByte = *DataPtr++;
-      
+
       TransmitBit<ClockPin, DataPin>(CurrentByte, ClockRegister, DataRegister);
       TransmitBit<ClockPin, DataPin>(CurrentByte, ClockRegister, DataRegister);
       TransmitBit<ClockPin, DataPin>(CurrentByte, ClockRegister, DataRegister);
@@ -259,9 +315,9 @@ public:
       TransmitBit<ClockPin, DataPin>(CurrentByte, ClockRegister, DataRegister);
       TransmitBit<ClockPin, DataPin>(CurrentByte, ClockRegister, DataRegister);
       TransmitBit<ClockPin, DataPin>(CurrentByte, ClockRegister, DataRegister);
-      
+
       CurrentByte = *DataPtr++;
-      
+
       TransmitBit<ClockPin, DataPin>(CurrentByte, ClockRegister, DataRegister);
       TransmitBit<ClockPin, DataPin>(CurrentByte, ClockRegister, DataRegister);
       TransmitBit<ClockPin, DataPin>(CurrentByte, ClockRegister, DataRegister);
@@ -271,9 +327,9 @@ public:
       TransmitBit<ClockPin, DataPin>(CurrentByte, ClockRegister, DataRegister);
       TransmitBit<ClockPin, DataPin>(CurrentByte, ClockRegister, DataRegister);
       TransmitBit<ClockPin, DataPin>(CurrentByte, ClockRegister, DataRegister);
-      
+
       CurrentByte = *DataPtr++;
-      
+
       TransmitBit<ClockPin, DataPin>(CurrentByte, ClockRegister, DataRegister);
       TransmitBit<ClockPin, DataPin>(CurrentByte, ClockRegister, DataRegister);
       TransmitBit<ClockPin, DataPin>(CurrentByte, ClockRegister, DataRegister);
@@ -283,11 +339,11 @@ public:
       TransmitBit<ClockPin, DataPin>(CurrentByte, ClockRegister, DataRegister);
       TransmitBit<ClockPin, DataPin>(CurrentByte, ClockRegister, DataRegister);
       TransmitBit<ClockPin, DataPin>(CurrentByte, ClockRegister, DataRegister);
-      
-      
+
+
       DataPtr = DataPtr - 3;
     }
-    
+
     while (DataPtr > EndDataPtr);
 
 
@@ -335,7 +391,7 @@ public:
   uint32_t
     Color(byte, byte, byte),
   getPixelColor(uint16_t n);
-uint8_t
+  uint8_t
     *pixels;    // Holds LED color values (3 bytes each) + latch
 private:
 
@@ -343,7 +399,7 @@ private:
     numLEDs,    // Number of RGB LEDs in strip
   numBytes;   // Size of 'pixels' buffer below
   uint8_t
-     clkpin    , datapin,     // Clock & data pin numbers
+    clkpin    , datapin,     // Clock & data pin numbers
   clkpinmask, datapinmask; // Clock & data PORT bitmasks
   volatile uint8_t
     *clkport  , *dataport;   // Clock & data PORT registers
@@ -354,6 +410,9 @@ private:
     hardwareSPI, // If 'true', using hardware SPI
   begun;       // If 'true', begin() method was previously invoked
 };
+
+
+
 
 
 

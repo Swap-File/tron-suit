@@ -113,7 +113,7 @@ boolean textmessagemode=false;
 
 //modes
 byte effectbuffer_mode = 0;
-byte effectbuffer_ratchet = 0;
+byte ratchet = 0;
 byte effectmode = 0;
 byte outputmode = 0;
 byte brightness=0;
@@ -535,8 +535,8 @@ void loop() {
   //generate effects array based on mode
   if(effectmode == 0){
     //buffer modes 3 and 4 are ugly with effect 0 so force switch it
-    if (effectbuffer_mode != 0 || effectbuffer_mode != 1 || effectbuffer_mode != 2){
-      effectbuffer_mode = 1;
+    if (effectbuffer_mode == 3 || effectbuffer_mode == 4){
+      effectbuffer_mode = 2;
     }
     averagespan =0;
 
@@ -742,7 +742,53 @@ void loop() {
   }
   else if (effectmode == 7){
 
+    int startingpixel=0;
+    int endingpixel=0;
 
+    switch (ratchet){
+    case 0:
+      startingpixel=0;
+      endingpixel=14;
+      break;
+    case 1:
+      startingpixel=14;
+      endingpixel=20;
+      break;
+    case 2:
+      startingpixel=0;
+      endingpixel=8;
+      break;
+    case 3:
+      startingpixel=8;
+      endingpixel=16;
+      break;
+    case 4:
+      startingpixel=16;
+      endingpixel=20;
+      break;
+    }
+
+    brightness = map(ytilt, 0, 254,0, 127);
+
+    instantspan =  map(brightness,0,127,0,SpanWheel(span));
+    for( i=0; i<strip_buffer_1.numPixels(); i++)     {
+      if( i < endingpixel && i >= startingpixel){
+        strip_buffer_1.setPixelColor(i,  Wheel(color));
+      }
+      else{
+        strip_buffer_1.setPixelColor(i,  0);
+      }
+    }
+
+    instantspan =  map(brightness,0,127,SpanWheel(span),0);
+    for( i=0; i<strip_buffer_2.numPixels(); i++)     {
+      if( i < endingpixel && i >= startingpixel){
+        strip_buffer_2.setPixelColor(i,  Wheel(color));
+      }
+      else{
+        strip_buffer_2.setPixelColor(i,  0);
+      }
+    }
 
 
 
@@ -809,7 +855,7 @@ void loop() {
       fade=0;
 
       //overlay fade equation, change later to make more logorithmic
-      overlaybrightness=map(currenttime,overlaytimer,overlaytimer+overlaytime,127,0);
+      overlaybrightness=map(currenttime,overlaytimer,overlaytimer+overlaytime,96,0);
 
       brightness=overlaybrightness;
       instantspan=0;
@@ -823,10 +869,13 @@ void loop() {
       r =r| (tempcolor>> 8);
       g  =g| (tempcolor>> 16);
       b = b|(tempcolor>>0) ;
-      for( i=0; i<3*strip_buffer_1.numPixels(); i++)     {
+      for( i=0; i<strip_buffer_1.numPixels(); i++)     {
         strip_buffer_1.pixels[i*3+1] = strip_buffer_1.pixels[i*3+1] | r ;
+        strip_buffer_2.pixels[i*3+1] = strip_buffer_2.pixels[i*3+1] | r ;
         strip_buffer_1.pixels[i*3]= strip_buffer_1.pixels[i*3] | g;
+        strip_buffer_2.pixels[i*3]= strip_buffer_2.pixels[i*3] | g;
         strip_buffer_1.pixels[i*3+2] = strip_buffer_1.pixels[i*3+2] |b  ;
+        strip_buffer_2.pixels[i*3+2] = strip_buffer_2.pixels[i*3+2] |b  ;
       }
       fade=tempfade;
       brightness=tempbrightness;
@@ -837,37 +886,42 @@ void loop() {
   }
 
   //output to the strips
-  switch (outputmode){
-  case 0: //down
-    output(B00000000);
-    break;
-  case 1: //down left
-    output(B00000011);
-    break; 
-  case 2:  //left
-    output(B00001001);
-    break;
-  case 3: //up left
-    output(B00001010);
-    break;
-  case 4: //up 
-    output(B00001111);
-    break;
-  case 5: //up right
-    output(B00001100);
-    break;
-  case 6: //right
-    output(B00000110);
-    break;
-  case 7: //down right
-    output(B00000101);
-    break;
-  }
 
+  if (effectmode == 7){
+    output(B00000000);
+  }
+  else
+  {
+    switch (outputmode){
+    case 0: //down
+      output(B00000000);
+      break;
+    case 1: //down left
+      output(B00001001);
+      break; 
+    case 2:  //left
+      output(B00000011);
+      break;
+    case 3: //up left
+      output(B00001010);
+      break;
+    case 4: //up 
+      output(B00001111);
+      break;
+    case 5: //up right
+      output(B00000110);
+      break;
+    case 6: //right
+      output(B00001100);
+      break;
+    case 7: //down right
+      output(B00000101);
+      break;
+    }
+  }
 
   //service LCD display, do this after overlay code has ran so it has all the data to work with
   updatedisplay();    
-
 }
 
 int gesture(int inputvalue, int itemrange){
@@ -949,128 +1003,151 @@ int gesture(int inputvalue, int itemrange){
 
 void output(byte w){
 
-  digitalWrite(strip_1,LOW);
-  if (bitRead(w,0)){
-    if (effectbuffer_mode == 1 || effectbuffer_mode == 3){
-      strip_buffer_2.showCompileTime<clockPin, dataPin>(); 
-    }
-    else{
-      strip_buffer_1.showCompileTime<clockPin, dataPin>(); 
-    }
-  }
-  else{
-    if (effectmode == 0){
+  if ((effectmode == 7 && ratchet > 1) || effectmode != 7){
+    digitalWrite(strip_1,LOW);
+    if (bitRead(w,0) == 1){
       if (effectbuffer_mode == 1 || effectbuffer_mode == 3){
-        strip_buffer_2.showCompileTimeFold<clockPin, dataPin>();
+        strip_buffer_2.showCompileTime<clockPin, dataPin>(); 
+        Serial.println("strip 1 buffer 2 normal");
       }
       else{
-        strip_buffer_1.showCompileTimeFold<clockPin, dataPin>();
+        strip_buffer_1.showCompileTime<clockPin, dataPin>(); 
+        Serial.println("strip 1 buffer 1 normal");
       }
     }
     else{
-      if (effectbuffer_mode == 1 || effectbuffer_mode == 3){
-        strip_buffer_2.showCompileTimeFlip<clockPin, dataPin>();
+      if (effectmode == 0){
+        if (effectbuffer_mode == 1 || effectbuffer_mode == 3){
+          strip_buffer_2.showCompileTimeFold<clockPin, dataPin>();
+          Serial.println("strip 1 buffer 2 Fold");
+        }
+        else{
+          strip_buffer_1.showCompileTimeFold<clockPin, dataPin>();
+          Serial.println("strip 1 buffer 1 Fold");
+        }
       }
       else{
-        strip_buffer_1.showCompileTimeFlip<clockPin, dataPin>();
+        if (effectbuffer_mode == 1 || effectbuffer_mode == 3){
+          strip_buffer_2.showCompileTimeFlip<clockPin, dataPin>();
+          Serial.println("strip 1 buffer 2 flip");
+        }
+        else{
+          strip_buffer_1.showCompileTimeFlip<clockPin, dataPin>();
+          Serial.println("strip 1 buffer 1 flip");
+        }
       }
     }
-  }
-  digitalWrite(strip_1,HIGH);
+    digitalWrite(strip_1,HIGH);
 
-
-
-  digitalWrite(strip_2,LOW);
-  if (bitRead(w,1)){
-    if (effectbuffer_mode == 2 || effectbuffer_mode == 4){
-      strip_buffer_2.showCompileTime<clockPin, dataPin>(); 
-    }
-    else{
-      strip_buffer_1.showCompileTime<clockPin, dataPin>(); 
-    }
-  }
-  else{
-    if (effectmode == 0){
-      if (effectbuffer_mode == 2 || effectbuffer_mode == 4){
-        strip_buffer_2.showCompileTimeFold<clockPin, dataPin>();
-      }
-      else{
-        strip_buffer_1.showCompileTimeFold<clockPin, dataPin>();
-      }
-    }
-    else{
-      if (effectbuffer_mode == 2 || effectbuffer_mode == 4){
-        strip_buffer_2.showCompileTimeFlip<clockPin, dataPin>();
-      }
-      else{
-        strip_buffer_1.showCompileTimeFlip<clockPin, dataPin>();
-      }
-    }
-  }
-  digitalWrite(strip_2,HIGH);
-
-
-
-  digitalWrite(strip_3,LOW);
-  if (bitRead(w,2)){
-    if (effectbuffer_mode == 2 || effectbuffer_mode == 3){
-      strip_buffer_2.showCompileTime<clockPin, dataPin>(); 
-    }
-    else{
-      strip_buffer_1.showCompileTime<clockPin, dataPin>(); 
-    }
-  }
-  else{
-    if (effectmode == 0){
-      if (effectbuffer_mode == 2 || effectbuffer_mode == 3){
-        strip_buffer_2.showCompileTimeFold<clockPin, dataPin>();
-      }
-      else{
-        strip_buffer_1.showCompileTimeFold<clockPin, dataPin>();
-      }
-    }
-    else{
-      if (effectbuffer_mode == 2 || effectbuffer_mode == 3){
-        strip_buffer_2.showCompileTimeFlip<clockPin, dataPin>();
-      }
-      else{
-        strip_buffer_1.showCompileTimeFlip<clockPin, dataPin>();
-      }
-    }
-  }
-  digitalWrite(strip_3,HIGH);
-
-
-
-  digitalWrite(strip_4,LOW);
-  if (bitRead(w,3)){
-    if (effectbuffer_mode == 1 || effectbuffer_mode == 4){
-      strip_buffer_2.showCompileTime<clockPin, dataPin>(); 
-    }
-    else{
-      strip_buffer_1.showCompileTime<clockPin, dataPin>(); 
-    }
-  }
-  else{
-    if (effectmode == 0){
+    digitalWrite(strip_4,LOW);
+    if (bitRead(w,3)== 1){
       if (effectbuffer_mode == 1 || effectbuffer_mode == 4){
-        strip_buffer_2.showCompileTimeFold<clockPin, dataPin>();
+        strip_buffer_2.showCompileTime<clockPin, dataPin>(); 
       }
       else{
-        strip_buffer_1.showCompileTimeFold<clockPin, dataPin>();
+        strip_buffer_1.showCompileTime<clockPin, dataPin>(); 
       }
     }
     else{
-      if (effectbuffer_mode == 1 || effectbuffer_mode == 4){
-        strip_buffer_2.showCompileTimeFlip<clockPin, dataPin>();
+      if (effectmode == 0){
+        if (effectbuffer_mode == 1 || effectbuffer_mode == 4){
+          strip_buffer_2.showCompileTimeFold<clockPin, dataPin>();
+        }
+        else{
+          strip_buffer_1.showCompileTimeFold<clockPin, dataPin>();
+        }
       }
       else{
-        strip_buffer_1.showCompileTimeFlip<clockPin, dataPin>();
+        if (effectbuffer_mode == 1 || effectbuffer_mode == 4){
+          strip_buffer_2.showCompileTimeFlip<clockPin, dataPin>();
+        }
+        else{
+          strip_buffer_1.showCompileTimeFlip<clockPin, dataPin>();
+        }
       }
     }
+    digitalWrite(strip_4,HIGH);
+  }else{
+    //blank them
+    digitalWrite(strip_1,LOW);
+    digitalWrite(strip_4,LOW);
+    
+     strip_buffer_1.showCompileTimeBlank<clockPin, dataPin>();
+    digitalWrite(strip_1,HIGH);
+    digitalWrite(strip_4,HIGH);
+    
   }
-  digitalWrite(strip_4,HIGH);
 
+  if ((effectmode == 7 && ratchet < 2) || effectmode != 7){
+    digitalWrite(strip_2,LOW);
+    if (bitRead(w,1)== 1){
+      if (effectbuffer_mode == 2 || effectbuffer_mode == 4){
+        strip_buffer_2.showCompileTime<clockPin, dataPin>(); 
+      }
+      else{
+        strip_buffer_1.showCompileTime<clockPin, dataPin>(); 
+      }
+    }
+    else{
+      if (effectmode == 0){
+        if (effectbuffer_mode == 2 || effectbuffer_mode == 4){
+          strip_buffer_2.showCompileTimeFold<clockPin, dataPin>();
+        }
+        else{
+          strip_buffer_1.showCompileTimeFold<clockPin, dataPin>();
+        }
+      }
+      else{
+        if (effectbuffer_mode == 2 || effectbuffer_mode == 4){
+          strip_buffer_2.showCompileTimeFlip<clockPin, dataPin>();
+        }
+        else{
+          strip_buffer_1.showCompileTimeFlip<clockPin, dataPin>();
+        }
+      }
+    }
+    digitalWrite(strip_2,HIGH);
+
+
+
+    digitalWrite(strip_3,LOW);
+    if (bitRead(w,2)== 1){
+      if (effectbuffer_mode == 2 || effectbuffer_mode == 3){
+        strip_buffer_2.showCompileTime<clockPin, dataPin>(); 
+      }
+      else{
+        strip_buffer_1.showCompileTime<clockPin, dataPin>(); 
+      }
+    }
+    else{
+      if (effectmode == 0){
+        if (effectbuffer_mode == 2 || effectbuffer_mode == 3){
+          strip_buffer_2.showCompileTimeFold<clockPin, dataPin>();
+        }
+        else{
+          strip_buffer_1.showCompileTimeFold<clockPin, dataPin>();
+        }
+      }
+      else{
+        if (effectbuffer_mode == 2 || effectbuffer_mode == 3){
+          strip_buffer_2.showCompileTimeFlip<clockPin, dataPin>();
+        }
+        else{
+          strip_buffer_1.showCompileTimeFlip<clockPin, dataPin>();
+        }
+      }
+    }
+    digitalWrite(strip_3,HIGH);
+  }else{
+    //blank them
+    digitalWrite(strip_2,LOW);
+    digitalWrite(strip_3,LOW);
+    
+    strip_buffer_2.showCompileTimeBlank<clockPin, dataPin>();
+    
+    digitalWrite(strip_2,HIGH);
+    digitalWrite(strip_3,HIGH);
+  }
 }
 
 
@@ -1732,6 +1809,15 @@ void updatedisplay(){
       //reset fist pump timer on status change
       if(pumped== true){
         fist_pump_timer= millis();
+
+        //ratchet code
+
+        ratchet++;
+        if (ratchet >4){
+          ratchet=0;
+        }
+
+        //mode flipping code
         if (effectbuffer_mode == 1){
           effectbuffer_mode =2;
         }
@@ -1789,6 +1875,15 @@ void updatedisplay(){
   fade = tempfade;
   brightness = tempbrightness;
 }
+
+
+
+
+
+
+
+
+
 
 
 

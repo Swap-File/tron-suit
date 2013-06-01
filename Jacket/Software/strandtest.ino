@@ -113,7 +113,7 @@ boolean textmessagemode=false;
 
 //modes
 byte effectbuffer_mode = 0;
-byte ratchet = 0;
+byte ratchet = 1;
 byte effectmode = 0;
 byte outputmode = 0;
 byte brightness=0;
@@ -534,9 +534,15 @@ void loop() {
 
   //generate effects array based on mode
   if(effectmode == 0){
+
     //buffer modes 3 and 4 are ugly with effect 0 so force switch it
     if (effectbuffer_mode == 3 || effectbuffer_mode == 4){
       effectbuffer_mode = 2;
+    }
+
+    //undo ugly output modes
+    if (outputmode == 2 || outputmode == 3 || outputmode == 6 || outputmode == 7){
+      outputmode = 0;
     }
     averagespan =0;
 
@@ -746,23 +752,23 @@ void loop() {
     int endingpixel=0;
 
     switch (ratchet){
-    case 0:
+    case 1:
       startingpixel=0;
       endingpixel=14;
       break;
-    case 1:
+    case 2:
       startingpixel=14;
       endingpixel=20;
       break;
-    case 2:
+    case 3:
       startingpixel=0;
       endingpixel=8;
       break;
-    case 3:
+    case 4:
       startingpixel=8;
       endingpixel=16;
       break;
-    case 4:
+    case 5:
       startingpixel=16;
       endingpixel=20;
       break;
@@ -1003,37 +1009,31 @@ int gesture(int inputvalue, int itemrange){
 
 void output(byte w){
 
-  if ((effectmode == 7 && ratchet > 1) || effectmode != 7){
+  if ((effectmode == 7 && ratchet > 2) || effectmode != 7){
     digitalWrite(strip_1,LOW);
     if (bitRead(w,0) == 1){
       if (effectbuffer_mode == 1 || effectbuffer_mode == 3){
         strip_buffer_2.showCompileTime<clockPin, dataPin>(); 
-        Serial.println("strip 1 buffer 2 normal");
       }
       else{
         strip_buffer_1.showCompileTime<clockPin, dataPin>(); 
-        Serial.println("strip 1 buffer 1 normal");
       }
     }
     else{
       if (effectmode == 0){
         if (effectbuffer_mode == 1 || effectbuffer_mode == 3){
           strip_buffer_2.showCompileTimeFold<clockPin, dataPin>();
-          Serial.println("strip 1 buffer 2 Fold");
         }
         else{
           strip_buffer_1.showCompileTimeFold<clockPin, dataPin>();
-          Serial.println("strip 1 buffer 1 Fold");
         }
       }
       else{
         if (effectbuffer_mode == 1 || effectbuffer_mode == 3){
           strip_buffer_2.showCompileTimeFlip<clockPin, dataPin>();
-          Serial.println("strip 1 buffer 2 flip");
         }
         else{
           strip_buffer_1.showCompileTimeFlip<clockPin, dataPin>();
-          Serial.println("strip 1 buffer 1 flip");
         }
       }
     }
@@ -1067,18 +1067,19 @@ void output(byte w){
       }
     }
     digitalWrite(strip_4,HIGH);
-  }else{
+  }
+  else{
     //blank them
     digitalWrite(strip_1,LOW);
     digitalWrite(strip_4,LOW);
-    
-     strip_buffer_1.showCompileTimeBlank<clockPin, dataPin>();
+
+    strip_buffer_1.showCompileTimeBlank<clockPin, dataPin>();
     digitalWrite(strip_1,HIGH);
     digitalWrite(strip_4,HIGH);
-    
+
   }
 
-  if ((effectmode == 7 && ratchet < 2) || effectmode != 7){
+  if ((effectmode == 7 && ratchet < 3) || effectmode != 7){
     digitalWrite(strip_2,LOW);
     if (bitRead(w,1)== 1){
       if (effectbuffer_mode == 2 || effectbuffer_mode == 4){
@@ -1138,13 +1139,14 @@ void output(byte w){
       }
     }
     digitalWrite(strip_3,HIGH);
-  }else{
+  }
+  else{
     //blank them
     digitalWrite(strip_2,LOW);
     digitalWrite(strip_3,LOW);
-    
+
     strip_buffer_2.showCompileTimeBlank<clockPin, dataPin>();
-    
+
     digitalWrite(strip_2,HIGH);
     digitalWrite(strip_3,HIGH);
   }
@@ -1811,10 +1813,66 @@ void updatedisplay(){
         fist_pump_timer= millis();
 
         //ratchet code
+        if(effectmode == 7){
+          switch (outputmode){
+          case 0: //down
+            ratchet++;
+            if (ratchet >5){
+              ratchet=1;
+            }
+            break;
+          case 1: //down left
+            ratchet--;
+            if (ratchet <1){
+              ratchet=2;
+              outputmode=7;
+            }
+            break; 
+          case 2:  //left
+            ratchet--;
+            if (ratchet <1){
+              ratchet=2;
+              outputmode=6;
+            }
+            break;
+          case 3: //up left
+            ratchet--;
+            if (ratchet <3){
+              ratchet=4;
+              outputmode=5;
+            }
+            break;
+          case 4: //up 
+            ratchet--;
+            if (ratchet <1){
+              ratchet=5;
+            }
+            break;
+          case 5: //up right
+            ratchet++;
+            if (ratchet >5){
+              ratchet=4;
+              outputmode=3;
+            }
+            break;
+          case 6: //right
+            ratchet++;
+            if (ratchet >5){
+              ratchet=4;
+              outputmode=2;
+            }
+            break;
+          case 7: //down right
+            ratchet++;
+            if (ratchet >2){
+              ratchet=1;
+              outputmode=1;
+            }
+            break;
+          }
 
-        ratchet++;
-        if (ratchet >4){
-          ratchet=0;
+
+
         }
 
         //mode flipping code
@@ -1875,6 +1933,11 @@ void updatedisplay(){
   fade = tempfade;
   brightness = tempbrightness;
 }
+
+
+
+
+
 
 
 

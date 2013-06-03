@@ -59,12 +59,17 @@ byte last_set_fade=8;  //set to impossible value to force sending first time
 #define SET_RAINBOW 0x19  //no confirmation needed
 #define TRIPLE_TAP 0x19  //no sending needed
 
+#define TEXTING_REPLY 0x19  //no sending needed
+
+
 boolean flipped= false;
 
 //suit reply
 #define CONFIRMED 0x11
 
 
+int jacket_voltage=1024;
+int disc_voltage=1024;
 
 //msgeq7 pins
 #define msgeq7_reset 3
@@ -191,8 +196,8 @@ MovingAverage xfilter = MovingAverage();
 MovingAverage yfilter = MovingAverage();
 //MovingAverage zfilter = MovingAverage();
 
-
-
+int auto_pump_timer = 0;
+boolean auto_pump= false;
 
 void setup() {
 
@@ -228,10 +233,18 @@ void setup() {
 
 void loop() {
 
+  //from zero to to full brightness the 5v line changes by a few mV due to sagging
+  //the lower vref goes the higher the ADC thinks the battery is
 
+
+  int currentvolt =analogRead(1) ;
+  jacket_voltage = jacket_voltage * .95 + currentvolt * .05;
+  // Serial.print(currentvolt);
+  //  Serial.print(" ");
+  // Serial.println(jacket_voltage);
 
   //approx 14V
-  if (analogRead(1) < 720){
+  if (jacket_voltage < 720){
     batterywarning++;
   }
   else{
@@ -239,7 +252,7 @@ void loop() {
   }
 
   if (batterywarning > 60){
-    Serial.print("Lowbatt ");
+
     fade=7;
   }
 
@@ -417,9 +430,9 @@ void loop() {
       }
     }
   }
-
   //basic setttings and span gestures
   if (zButtonDelayed){
+
     switch (dpad){
     case DPAD_LEFT:
       effectbuffer_mode=1;
@@ -428,9 +441,11 @@ void loop() {
       effectbuffer_mode = 3;
       break;
     case DPAD_UP:
+      auto_pump=false;
       message_timer=millis();
       break;
     case DPAD_DOWN:
+      auto_pump= true;
       message_timer=0;
       break;
     case DPAD_UP_LEFT:
@@ -458,13 +473,10 @@ void loop() {
     }
     else {
       dirpressed = false;
-
       //span gesture
       span = gesture(span,spanrange);
-
       //wrap span to circle
       span =(span+512) % 512;
-
     }
   }
 
@@ -831,6 +843,7 @@ void loop() {
         overlaytimer =millis();
         overlaytime=500;
         effectmode=8;
+        effectbuffer_mode=0;
         fade=0;
         overlaystatus=overlayprimer;
       }
@@ -928,6 +941,7 @@ void loop() {
 
   //service LCD display, do this after overlay code has ran so it has all the data to work with
   updatedisplay();    
+
 }
 
 int gesture(int inputvalue, int itemrange){
@@ -1326,6 +1340,10 @@ void readserial(){
       serial2bufferpointer=0;
       serial2payloadsize=80; 
       break;
+    case TEXTING_REPLY:
+      serial2bufferpointer=0;
+      serial2payloadsize=0; 
+      break;
     }
 
     serial2buffer[serial2bufferpointer] = Serial2.read(); //load a character
@@ -1367,6 +1385,15 @@ void readserial(){
           }
           fade = 0;
           break;
+        }
+      case TEXTING_REPLY:
+        {
+          
+          Serial2.print("Confirmed. Color1 ");
+          Serial2.print(color);
+          Serial2.print(" Color2 ");
+          Serial2.println(span);
+           break;
         }
       default:
         serial2buffer[0] = 0xff;
@@ -1486,11 +1513,27 @@ void nunchuckparse(){
   xtilt = constrain(xtilt, 350, 650);
   xtilt= map(xtilt, 350, 650,0, 254);
 
-  ytilt = yfilter.process(nunchuk.accelY);
-  ytilt = constrain(ytilt, 500, 600);
-  ytilt = map(ytilt, 500, 600,0, 254);
+  if (auto_pump == true){
 
+    ytilt = map(millis() % auto_pump_timer, 0, auto_pump_timer,0, 254);
 
+    ytilt = ytilt * 4;
+    if( ytilt < 256){
+      ytilt = 0;
+    }
+    else{
+      ytilt = ytilt -256;
+      if( ytilt > 254){
+        ytilt = 254;
+      }
+    }
+  }
+  else{
+    ytilt = yfilter.process(nunchuk.accelY);
+    ytilt = constrain(ytilt, 500, 600);
+    ytilt = map(ytilt, 500, 600,0, 254);
+
+  }
 
   //ztilt = zfilter.process(nunchuk.accelZ);
   //ztilt = constrain(ztilt, 350, 700);
@@ -1805,13 +1848,22 @@ void updatedisplay(){
   } 
   //fist pump modes
   else {  
-
     //change the pump status based on tilt
     if (ytilt == 0){
       //reset fist pump timer on status change
       if(pumped== true){
+        //calculate period for auto pumping
+        if(auto_pump == false){
+          Serial.print((millis()-fist_pump_timer));
+          Serial.print(" ");
+          if (auto_pump_timer>1000) {
+            auto_pump_timer = 1000;
+          }
+          auto_pump_timer = auto_pump_timer * .5 + (millis()-fist_pump_timer) *.5;
+          Serial.println(auto_pump_timer);
+        }
+        //  auto_pump_timer_start= millis();
         fist_pump_timer= millis();
-
         //ratchet code
         if(effectmode == 7){
           switch (outputmode){
@@ -1870,11 +1922,7 @@ void updatedisplay(){
             }
             break;
           }
-
-
-
         }
-
         //mode flipping code
         if (effectbuffer_mode == 1){
           effectbuffer_mode =2;
@@ -1892,14 +1940,6 @@ void updatedisplay(){
       pumped=false;
     }
     else if (ytilt == 254 ){
-      //reset fist pump timer on status change and ratchet effects
-      if(pumped== false){
-        fist_pump_timer= millis();
-
-
-
-
-      }
       pumped=true;
     }
 
@@ -1933,6 +1973,14 @@ void updatedisplay(){
   fade = tempfade;
   brightness = tempbrightness;
 }
+
+
+
+
+
+
+
+
 
 
 

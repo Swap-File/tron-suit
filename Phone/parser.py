@@ -1,6 +1,7 @@
 BT_DEVICE_ID = '00:12:09:25:91:70'
 import time
 import re
+import pprint
 import textwrap
 import android
 from base64 import b64encode
@@ -271,7 +272,21 @@ while True:
 						#check incoming buffer
 						if(droid.bluetoothReadBinary().result is None):
 								raise Exception
-			
+
+					#send confirmation request
+					droid.bluetoothWriteBinary(b64encode(chr(25)))
+					
+					reply = []
+					#wait one second to recieve a line of data back
+					deadline = time.time() + .5
+					while('\n' not in reply):
+						while(droid.bluetoothReadReady().result == False):
+							if(time.time() > deadline):
+								raise Exception
+						reply.append(droid.bluetoothRead(1).result)
+						
+					print ''.join(reply)
+					
 				except:
 					print "Exception During Sending."
 					time.sleep(10)
@@ -279,4 +294,5 @@ while True:
 					print "Sent Message from " + input.result[0]['address'] 
 					sent=True
 					droid.smsMarkMessageRead([input.result[0]['_id']],True)
+					droid.smsSend(input.result[0]['address'] ,''.join(reply))
 					droid.wakeLockRelease()

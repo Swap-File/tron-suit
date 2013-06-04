@@ -4,6 +4,7 @@ import re
 import pprint
 import textwrap
 import android
+import colorsys
 from base64 import b64encode
 
 droid = android.Android()
@@ -276,16 +277,72 @@ while True:
 					#send confirmation request
 					droid.bluetoothWriteBinary(b64encode(chr(25)))
 					
-					reply = []
+					color = []
 					#wait one second to recieve a line of data back
 					deadline = time.time() + .5
-					while('\n' not in reply):
+					while('\n' not in color):
 						while(droid.bluetoothReadReady().result == False):
 							if(time.time() > deadline):
 								raise Exception
-						reply.append(droid.bluetoothRead(1).result)
+						color.append(droid.bluetoothRead(1).result)
+					
+					span = []
+					#wait one second to recieve a line of data back
+					deadline = time.time() + .5
+					while('\n' not in span):
+						while(droid.bluetoothReadReady().result == False):
+							if(time.time() > deadline):
+								raise Exception
+						span.append(droid.bluetoothRead(1).result)
 						
-					print ''.join(reply)
+					fps = []
+					#wait one second to recieve a line of data back
+					deadline = time.time() + .5
+					while('\n' not in fps):
+						while(droid.bluetoothReadReady().result == False):
+							if(time.time() > deadline):
+								raise Exception
+						fps.append(droid.bluetoothRead(1).result)
+						
+					bpm = []
+					#wait one second to recieve a line of data back
+					deadline = time.time() + .5
+					while('\n' not in bpm):
+						while(droid.bluetoothReadReady().result == False):
+							if(time.time() > deadline):
+								raise Exception
+						bpm.append(droid.bluetoothRead(1).result)
+						
+					jacketvolts = []
+					#wait one second to recieve a line of data back
+					deadline = time.time() + .5
+					while('\n' not in jacketvolts):
+						while(droid.bluetoothReadReady().result == False):
+							if(time.time() > deadline):
+								raise Exception
+						jacketvolts.append(droid.bluetoothRead(1).result)	
+					
+					discvolts = []
+					#wait one second to recieve a line of data back
+					deadline = time.time() + .5
+					while('\n' not in discvolts):
+						while(droid.bluetoothReadReady().result == False):
+							if(time.time() > deadline):
+								raise Exception
+						discvolts.append(droid.bluetoothRead(1).result)	
+						
+					output = "Confirmed. "
+					print int(''.join(color))
+					print int(''.join(span))
+					output += " FPS:" + str(int(''.join(fps)))
+				
+					if (int(''.join(bpm)) == 1000):
+						output += " BPM:-"
+					else: 
+						output += " BPM:" + str(60000/int(''.join(bpm)))
+					output += " Suit:{0:2.2f}".format(15.08/759*float(''.join(jacketvolts))) + "V"
+					output += " Disc:{0:2.2f}".format(11.11/693*float(''.join(discvolts))) + "V"
+					print output					
 					
 				except:
 					print "Exception During Sending."
@@ -294,5 +351,5 @@ while True:
 					print "Sent Message from " + input.result[0]['address'] 
 					sent=True
 					droid.smsMarkMessageRead([input.result[0]['_id']],True)
-					droid.smsSend(input.result[0]['address'] ,''.join(reply))
+					#droid.smsSend(input.result[0]['address'] ,''.join(reply))
 					droid.wakeLockRelease()

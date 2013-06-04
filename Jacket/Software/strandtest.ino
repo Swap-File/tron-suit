@@ -57,10 +57,10 @@ byte last_set_fade=8;  //set to impossible value to force sending first time
 
 //these two can overlap
 #define SET_RAINBOW 0x19  //no confirmation needed
-#define TRIPLE_TAP 0x19  //no sending needed
+#define TRIPLE_TAP 0x19 
 
-#define TEXTING_REPLY 0x19  //no sending needed
-
+#define TEXTING_REPLY 0x19  
+#define BATTERY_LEVEL 0x1B 
 
 boolean flipped= false;
 
@@ -69,7 +69,7 @@ boolean flipped= false;
 
 
 int jacket_voltage=1024;
-int disc_voltage=1024;
+int disc_voltage=0;
 
 //msgeq7 pins
 #define msgeq7_reset 3
@@ -138,8 +138,8 @@ unsigned long latch_cool_down; //keep track of time  gesture ended at
 
 //debug FPS calculations
 unsigned long fpstime=0;
-int fps=0;
-
+byte fps=0;
+byte fps_saved=0;
 //serial buffers
 byte serial2buffer[81];
 byte serial2bufferpointer = 0;
@@ -186,7 +186,7 @@ byte dpad = 0x00;
 boolean dirpressed=false;
 byte batterywarning=0;
 
-unsigned long nunchuck_update=0;
+unsigned long heartbeat=0;
 
 LPD8806 strip_buffer_1 = LPD8806(20, dataPin, clockPin);
 LPD8806 strip_buffer_2 = LPD8806(20, dataPin, clockPin);
@@ -196,7 +196,7 @@ MovingAverage xfilter = MovingAverage();
 MovingAverage yfilter = MovingAverage();
 //MovingAverage zfilter = MovingAverage();
 
-int auto_pump_timer = 0;
+int auto_pump_timer = 1000;
 boolean auto_pump= false;
 
 void setup() {
@@ -235,27 +235,33 @@ void loop() {
 
   //from zero to to full brightness the 5v line changes by a few mV due to sagging
   //the lower vref goes the higher the ADC thinks the battery is
-
-
-  int currentvolt =analogRead(1) ;
-  jacket_voltage = jacket_voltage * .95 + currentvolt * .05;
-  // Serial.print(currentvolt);
-  //  Serial.print(" ");
-  // Serial.println(jacket_voltage);
-
+  jacket_voltage = jacket_voltage * .97 + analogRead(1) * .03;
+  //multiply  jacket_voltage by 0.01986824769 or 
   //approx 14V
   if (jacket_voltage < 720){
-    batterywarning++;
-  }
-  else{
-    batterywarning=0;
-  }
-
-  if (batterywarning > 60){
-
     fade=7;
   }
+ // Serial.print(disc_voltage); // * 11.11/693 = volts
+  //Serial.print(" ");
+ // Serial.println(jacket_voltage); // * 15.08/759= volts
 
+
+
+  //dont trust disc if it hasnt been heard from in 2 seconds
+  if (millis() - heartbeat > 2000){
+    last_set_color= -1 ;//set to impossible value to force send on boot
+    last_set_span=-1;//set to impossible value to force send on boot
+    last_set_brightness=128; //set to impossible value to force sending first time
+    last_set_fade=8;  //set to impossible value to force sending first time
+    disc_voltage=0;
+  }
+
+  if (millis() - fpstime > 1000){
+    fps_saved = fps;
+    fps=0;
+    fpstime=millis();
+  }
+  fps++;
 
 
   overlayprimer=0;
@@ -264,22 +270,13 @@ void loop() {
   readserial();    //service serial ports
   sendserial(); //send serial data
 
-  //limit nunchuck updating so not to flood the chuk
-  // if ( millis() - nunchuck_update > 100){
   nunchuk.update();       //read data from nunchuck
-  //  nunchuck_update=millis();
-  //}
 
   nunchuckparse();  //filter inputs and set D-pad boolean mappings
 
 
-  if (millis() - fpstime > 1000){
-    Serial.println(fps);
-    fps=0;
 
-    fpstime=millis();
-  }
-  fps++;
+
 
 
   //reset variables for monitoring buttons
@@ -1241,6 +1238,7 @@ void readserial(){
     case SET_COLOR:
     case SET_SPAN:
     case SET_FADE_BRIGHTNESS:
+    case BATTERY_LEVEL:
       serial1bufferpointer=0;
       serial1payloadsize=2;
       break;
@@ -1253,6 +1251,12 @@ void readserial(){
     serial1buffer[serial1bufferpointer] = Serial1.read(); //load a character
     if(serial1bufferpointer == serial1payloadsize){//all payloads are size 2
       switch (serial1buffer[0]){
+      case BATTERY_LEVEL:
+        {
+          disc_voltage  = (serial1buffer[1] << 6) | (serial1buffer[2] >> 1);
+          heartbeat = millis();
+          break;
+        }
       case TRIPLE_TAP:
         {
           if(effectmode == 8){
@@ -1388,12 +1392,14 @@ void readserial(){
         }
       case TEXTING_REPLY:
         {
-          
-          Serial2.print("Confirmed. Color1 ");
-          Serial2.print(color);
-          Serial2.print(" Color2 ");
-          Serial2.println(span);
-           break;
+          Serial2.println(color); //COLOR1
+          Serial2.println(span);//COLOR2
+          Serial2.println(fps_saved); //FPS
+          Serial2.println(auto_pump_timer);  //BPM
+          Serial2.println(jacket_voltage); //voltage
+          Serial2.println(disc_voltage); //voltage
+
+            break;
         }
       default:
         serial2buffer[0] = 0xff;
@@ -1973,102 +1979,4 @@ void updatedisplay(){
   fade = tempfade;
   brightness = tempbrightness;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 

@@ -48,7 +48,7 @@ byte last_set_fade=0;
 #define SET_RAINBOW 0x19  //no confirmation needed
 #define TRIPLE_TAP 0x19  //no sending needed
 
-#define SET_CONFIRMED 0x1F
+#define BATTERY_LEVEL 0x1B  
 
 //serial buffers
 byte serialbuffer[3];
@@ -84,9 +84,9 @@ int magnitude=8;
 int angle=0;
 
 
-
+int disc_voltage=1024;
 unsigned long lastupdate=0;
-
+unsigned long batteryupdate=0;
 
 int previous_x_absolute = 0;
 int previous_y_absolute = 0;
@@ -215,7 +215,7 @@ void setup()
   adxl.setTapDetectionOnZ(1);
 
   //set values for what is a tap, and what is a double tap (0-255)
-  adxl.setTapThreshold(100); //62.5mg per increment
+  adxl.setTapThreshold(80); //62.5mg per increment
   adxl.setTapDuration(15); //625μs per increment
   adxl.setDoubleTapLatency(80); //1.25ms per increment
   adxl.setDoubleTapWindow(200); //1.25ms per increment
@@ -250,8 +250,11 @@ void loop()
 
   //battery level check
   //650 = 9.45v
-  if (analogRead(0) < 650){
 
+
+  disc_voltage = disc_voltage * .97 + analogRead(0) * .03;
+
+  if (disc_voltage < 650){
     for(int i=0; i<strip.numPixels(); i++) {
       if (i%2){
         strip.setPixelColor(i,Wheel(0)); // Set new pixel 'on'
@@ -264,16 +267,29 @@ void loop()
     }
   }
 
+  if (millis() - batteryupdate > 1000){
+    sendbattery();
+  }
+
+
   byte intsource = adxl.getInterruptSource();
   if ((intsource >> ADXL345_INT_DOUBLE_TAP_BIT) & 1)  {
     if (millis() - tap_time < 200 ){
       Serial.write(TRIPLE_TAP);
+      for(int i=0; i<strip.numPixels(); i++) {
+        strip.setPixelColor(i,0);
+      }
+      strip.showCompileTime<ClockPin, DataPin>();          
+      delay(100);
     }
     else{
       fade=0;
       span=0;
       instantspan=0;
       z_latch = 0;
+
+      //send a heartbeat before animating
+      sendbattery();
 
       for(int i=0; i<16; i++) {
         //start at top of disc and work around
@@ -282,11 +298,17 @@ void loop()
         delay(50);
       }
 
+      //send a heartbeat before going dark
+      sendbattery();
+
       digitalWrite(LIGHTS, HIGH );
       attachInterrupt(0, TSC_Count, RISING);
       Timer1.attachInterrupt(TSC_Callback); 
 
       delay(1000);
+
+      //send a heartbeat before animating
+      sendbattery();
 
       digitalWrite(LIGHTS,LOW );
       if (g_array[0]+g_array[1]+g_array[2] <20){
@@ -500,16 +522,16 @@ void loop()
       z_latch_time_cooldown = millis();
       z_latch_angle = xy_angle;
       z_latch = 2;
-    
+
     }
     else if (z_latch == 3 ||  z_latch == 4){  //disable latched mode
       z_latch_time_cooldown = millis();
       z_latch =0;
-             tap_time = millis();
+      tap_time = millis();
     }
   }
   //detect low z motion 
-  else if(abs(z_filtered) <10 &&  z_latch_time_cooldown + 200 < millis()) {  
+  else if(abs(z_filtered) <10 &&  z_latch_time_cooldown + 500 < millis()) {  
     if (z_latch == 0){
       z_latch = 1;
     }
@@ -673,6 +695,13 @@ void updatearray(){
   }
 }
 
+void sendbattery(){
+    Serial.write(BATTERY_LEVEL);
+    Serial.write((disc_voltage >> 6) & 0xFE);
+    Serial.write(disc_voltage << 1);
+    batteryupdate=millis();
+}
+
 int SpanWheel(int SpanWheelPos){
   int tempspan;
   //map span of 0 128 256 384 to span circle of 0 128 0 -128 
@@ -781,6 +810,15 @@ uint32_t Wheel(uint16_t WheelPos){
   b = b*brightness/127;
   return(strip.Color( r >> fade ,g >> fade,b >> fade));
 }
+
+
+
+
+
+
+
+
+
 
 
 

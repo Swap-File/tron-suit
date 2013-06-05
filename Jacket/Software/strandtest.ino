@@ -198,7 +198,7 @@ MovingAverage yfilter = MovingAverage();
 
 int auto_pump_timer = 1000;
 boolean auto_pump= false;
-
+boolean auto_pump_primer = false;
 void setup() {
 
   strip_buffer_1.begin();
@@ -241,9 +241,9 @@ void loop() {
   if (jacket_voltage < 720){
     fade=7;
   }
- // Serial.print(disc_voltage); // * 11.11/693 = volts
+  // Serial.print(disc_voltage); // * 11.11/693 = volts
   //Serial.print(" ");
- // Serial.println(jacket_voltage); // * 15.08/759= volts
+  // Serial.println(jacket_voltage); // * 15.08/759= volts
 
 
 
@@ -296,7 +296,7 @@ void loop() {
       }
       if (dirpressed == false){ 
         //quick one time overlay pulse event to hide transitions
-        if (fade!=7 && effectmode !=8){
+        if (fade!=7 && effectmode !=8 && effectmode !=7){
           overlayprimer=2;
         }
 
@@ -438,11 +438,11 @@ void loop() {
       effectbuffer_mode = 3;
       break;
     case DPAD_UP:
-      auto_pump=false;
+      auto_pump_primer=false;
       message_timer=millis();
       break;
     case DPAD_DOWN:
-      auto_pump= true;
+      auto_pump_primer= true;
       message_timer=0;
       break;
     case DPAD_UP_LEFT:
@@ -543,12 +543,12 @@ void loop() {
 
   //generate effects array based on mode
   if(effectmode == 0){
-
+  auto_pump=false;
     //buffer modes 3 and 4 are ugly with effect 0 so force switch it
     if (effectbuffer_mode == 3 || effectbuffer_mode == 4){
       effectbuffer_mode = 2;
     }
-
+  
     //undo ugly output modes
     if (outputmode == 2 || outputmode == 3 || outputmode == 6 || outputmode == 7){
       outputmode = 0;
@@ -618,6 +618,7 @@ void loop() {
     }
   }
   else if(effectmode == 1){
+    auto_pump=false;
     brightness = map(spectrumValue[0]*.3,spectrumValueMin[0]*.3,spectrumValueMax[0]*.3,0,127); 
     if (brightness > 64){
       instantspan =  map(brightness,64,127,0,SpanWheel(span));
@@ -810,6 +811,7 @@ void loop() {
 
   } 
   else if (effectmode == 8){
+    auto_pump=false;
     brightness=127;
     for( i=0; i<strip_buffer_1.numPixels(); i++)     {
       instantspan =  map(i,0,19,0,SpanWheel(span));
@@ -1393,7 +1395,7 @@ void readserial(){
       case TEXTING_REPLY:
         {
           Serial2.println(color); //COLOR1
-          Serial2.println(span);//COLOR2
+          Serial2.println(SpanWheel(span));//COLOR2
           Serial2.println(fps_saved); //FPS
           Serial2.println(auto_pump_timer);  //BPM
           Serial2.println(jacket_voltage); //voltage
@@ -1859,6 +1861,14 @@ void updatedisplay(){
       //reset fist pump timer on status change
       if(pumped== true){
         //calculate period for auto pumping
+
+        //only switch in or out of auto pump on a cycle end
+        if(auto_pump_primer == true){
+          auto_pump = true;
+        }
+        else{
+          auto_pump = false;
+        }
         if(auto_pump == false){
           Serial.print((millis()-fist_pump_timer));
           Serial.print(" ");
@@ -1979,4 +1989,5 @@ void updatedisplay(){
   fade = tempfade;
   brightness = tempbrightness;
 }
+
 

@@ -90,25 +90,9 @@ while True:
 					expandedMatches.append(item)
 					
 			#convert hex codes to groups of RGB ints
-			RGBarray = []
+			colorDegrees = []
 			for item in expandedMatches:
-				RGBarray.append({'R':int(item[0:2],16),'G':int(item[2:4],16),'B':int(item[4:6],16)})
-					 
-			#convert RGB ints to degrees on color wheel	 
-			colorDegrees = []	
-			for item in RGBarray:
-				maxvalue = max(item['R'],item['G'],item['B'])
-				minvalue = min(item['R'],item['G'],item['B']) 
-				chroma = maxvalue - minvalue
-				
-				if (chroma == 0):
-					break;
-				elif (maxvalue == item['R']):
-					colorDegrees.append(60*(float(item['G']-item['B'])/chroma))
-				elif (maxvalue == item['G']):
-					colorDegrees.append(60*((float(item['B']-item['R'])/chroma)+2))
-				elif (maxvalue == item['B']):
-					colorDegrees.append(60*((float(item['R']-item['G'])/chroma)+4))
+				colorDegrees.append(colorsys.rgb_to_hsv(float(int(item[0:2],16)),float(int(item[2:4],16)),float(int(item[4:6],16)))[0] * 360)
 
 			#span calculations for multi color mode		
 			span = 0 #set span to zero so if we have no secondary colors it clears it
@@ -286,6 +270,8 @@ while True:
 								raise Exception
 						color.append(droid.bluetoothRead(1).result)
 					
+					color = float(''.join(color))
+					
 					span = []
 					#wait one second to recieve a line of data back
 					deadline = time.time() + .5
@@ -294,6 +280,8 @@ while True:
 							if(time.time() > deadline):
 								raise Exception
 						span.append(droid.bluetoothRead(1).result)
+					
+					span = float(''.join(span))
 						
 					fps = []
 					#wait one second to recieve a line of data back
@@ -304,6 +292,8 @@ while True:
 								raise Exception
 						fps.append(droid.bluetoothRead(1).result)
 						
+					fps = int(''.join(fps))
+					
 					bpm = []
 					#wait one second to recieve a line of data back
 					deadline = time.time() + .5
@@ -313,6 +303,8 @@ while True:
 								raise Exception
 						bpm.append(droid.bluetoothRead(1).result)
 						
+					bpm = int(''.join(bpm))	
+					
 					jacketvolts = []
 					#wait one second to recieve a line of data back
 					deadline = time.time() + .5
@@ -321,6 +313,8 @@ while True:
 							if(time.time() > deadline):
 								raise Exception
 						jacketvolts.append(droid.bluetoothRead(1).result)	
+						
+					jacketvolts = float(''.join(jacketvolts))
 					
 					discvolts = []
 					#wait one second to recieve a line of data back
@@ -331,25 +325,46 @@ while True:
 								raise Exception
 						discvolts.append(droid.bluetoothRead(1).result)	
 						
-					output = "Confirmed. "
-					print int(''.join(color))
-					print int(''.join(span))
-					output += " FPS:" + str(int(''.join(fps)))
-				
-					if (int(''.join(bpm)) == 1000):
-						output += " BPM:-"
-					else: 
-						output += " BPM:" + str(60000/int(''.join(bpm)))
-					output += " Suit:{0:2.2f}".format(15.08/759*float(''.join(jacketvolts))) + "V"
-					output += " Disc:{0:2.2f}".format(11.11/693*float(''.join(discvolts))) + "V"
-					print output					
+					discvolts = float(''.join(discvolts))
 					
 				except:
 					print "Exception During Sending."
 					time.sleep(10)
 				else:
-					print "Sent Message from " + input.result[0]['address'] 
+					
 					sent=True
+					
+					output = "Confirmed. Status Report."
+					if color == 384:
+						output +=  " Color1:#FFFFFF Color2:#------"
+					elif color == 385:
+						output +=  " Color1:RAINBOW Color2:#------"
+					else:
+						output += " Color1:"
+						for i in colorsys.hsv_to_rgb(color/384, 1.0, 1.0):
+							output += "".join('%02x' % (i*255)).upper()
+						
+					output += " Color2:"
+					if span == 0:
+						output += "#------"
+					else:
+						for i in colorsys.hsv_to_rgb((color + span)/384, 1.0, 1.0):
+							output +=  "".join('%02x' % (i*255)).upper()
+
+					output += " FPS:" + str(fps)
+				
+					if bpm == 1000:
+						output += " BPM:-"
+					else: 
+						output += " BPM:" + str(60000/bpm)
+					output += " Suit:{0:2.2f}".format(15.08/759*jacketvolts) + "V"
+					output += " Disc:{0:2.2f}".format(11.11/693*discvolts) + "V"
+					
+								
+					print "Message from " + input.result[0]['address']  
+					print output
+					
 					droid.smsMarkMessageRead([input.result[0]['_id']],True)
-					#droid.smsSend(input.result[0]['address'] ,''.join(reply))
+					droid.smsSend(input.result[0]['address'] ,output)
+					print "Ready..."
 					droid.wakeLockRelease()

@@ -91,7 +91,7 @@ boolean staticdisplayloaded = false;
 //global indexes for strip for effects
 byte i = 0;
 int rainbowoffset = 383;
-
+byte auto_pump_multiplier=0;
 //accelerometer values
 unsigned int xtilt;
 unsigned int ytilt;
@@ -113,7 +113,7 @@ byte overlaystatus=0;
 byte  overlayprimer=0;
 
 boolean textmessagemode=false;
-
+unsigned long beats=0;
 
 
 //modes
@@ -185,7 +185,7 @@ byte dpad = 0x00;
 //makes sure dpad input is processed only once
 boolean dirpressed=false;
 byte batterywarning=0;
-
+byte fadeprimer=0;
 unsigned long heartbeat=0;
 
 LPD8806 strip_buffer_1 = LPD8806(20, dataPin, clockPin);
@@ -195,7 +195,7 @@ ArduinoNunchuk nunchuk = ArduinoNunchuk();
 MovingAverage xfilter = MovingAverage();
 MovingAverage yfilter = MovingAverage();
 //MovingAverage zfilter = MovingAverage();
-
+unsigned long effect_cooldown =0;
 int auto_pump_timer = 1000;
 boolean auto_pump= false;
 boolean auto_pump_primer = false;
@@ -429,37 +429,42 @@ void loop() {
   }
   //basic setttings and span gestures
   if (zButtonDelayed){
-
+    fadeprimer =0;
     switch (dpad){
-    case DPAD_LEFT:
+    case DPAD_LEFT: //arm chest switch
       effectbuffer_mode=1;
       break;
-    case DPAD_RIGHT:
+    case DPAD_RIGHT: //chest chest seitch
       effectbuffer_mode = 3;
       break;
     case DPAD_UP:
       auto_pump_primer=false;
-      message_timer=millis();
+
       break;
     case DPAD_DOWN:
+      if ( dirpressed==false) effect_cooldown = millis();
       auto_pump_primer= true;
-      message_timer=0;
+      
+      if (millis() - effect_cooldown > 400){
+        if(nunchuk.accelX > 1000||nunchuk.accelY > 1000 ||nunchuk.accelZ > 1000){
+          if (auto_pump_multiplier<3 ) auto_pump_multiplier++;
+          effect_cooldown = millis();
+        } 
+      }
+      
       break;
     case DPAD_UP_LEFT:
       overlayprimer = 3;
-
-      //change mode instantly without motion if faded
-      if (fade == 7){
-        effectmode=8;
-      }
+      fadeprimer = 2;
       break;
     case DPAD_DOWN_RIGHT:
-      if (fade < 7 && dirpressed==false ) fade++; 
+      message_timer=0;
       break;
     case DPAD_UP_RIGHT:
-      if (fade > 0 && dirpressed==false ) fade--; 
+      message_timer=millis();
       break;
     case DPAD_DOWN_LEFT:
+      fadeprimer = 1;
       overlayprimer = 1;
       break;
     }
@@ -476,8 +481,20 @@ void loop() {
       span =(span+512) % 512;
     }
   }
+  else{
 
+    auto_pump_multiplier=0;
+  }
 
+  //adjust fade on combo release
+  if (fadeprimer == 2&& dirpressed==false){
+    if (fade > 0  ) fade--; 
+    fadeprimer =0;
+  }
+  else if(fadeprimer == 1&& dirpressed==false){
+    if (fade < 7 && dirpressed==false ) fade++; 
+    fadeprimer =0;
+  }
 
   //code to roll the rainbow left and right
   if (color == 385){
@@ -543,12 +560,12 @@ void loop() {
 
   //generate effects array based on mode
   if(effectmode == 0){
-  auto_pump=false;
+    auto_pump_primer = false;
     //buffer modes 3 and 4 are ugly with effect 0 so force switch it
     if (effectbuffer_mode == 3 || effectbuffer_mode == 4){
       effectbuffer_mode = 2;
     }
-  
+
     //undo ugly output modes
     if (outputmode == 2 || outputmode == 3 || outputmode == 6 || outputmode == 7){
       outputmode = 0;
@@ -618,7 +635,7 @@ void loop() {
     }
   }
   else if(effectmode == 1){
-    auto_pump=false;
+    auto_pump_primer = false;
     brightness = map(spectrumValue[0]*.3,spectrumValueMin[0]*.3,spectrumValueMax[0]*.3,0,127); 
     if (brightness > 64){
       instantspan =  map(brightness,64,127,0,SpanWheel(span));
@@ -811,7 +828,13 @@ void loop() {
 
   } 
   else if (effectmode == 8){
-    auto_pump=false;
+
+    auto_pump_primer=false;
+    if (effectbuffer_mode != 0){
+      effectbuffer_mode = 0;
+    }
+
+    auto_pump_primer = false;
     brightness=127;
     for( i=0; i<strip_buffer_1.numPixels(); i++)     {
       instantspan =  map(i,0,19,0,SpanWheel(span));
@@ -820,6 +843,9 @@ void loop() {
 
   }
 
+  if (fade == 7){
+    auto_pump_primer=false;
+  }
 
   if (overlayprimer!=0){
     //fadeout
@@ -1400,8 +1426,9 @@ void readserial(){
           Serial2.println(auto_pump_timer);  //BPM
           Serial2.println(jacket_voltage); //voltage
           Serial2.println(disc_voltage); //voltage
-
-            break;
+          Serial2.println(millis()); //uptime
+          Serial2.println(beats);
+          break;
         }
       default:
         serial2buffer[0] = 0xff;
@@ -1523,7 +1550,7 @@ void nunchuckparse(){
 
   if (auto_pump == true){
 
-    ytilt = map(millis() % auto_pump_timer, 0, auto_pump_timer,0, 254);
+    ytilt = map((millis()-fist_pump_timer )% (auto_pump_timer >> auto_pump_multiplier), 0, (auto_pump_timer >> auto_pump_multiplier), 0,254);
 
     ytilt = ytilt * 4;
     if( ytilt < 256){
@@ -1688,7 +1715,7 @@ void updatedisplay(){
       } 
     }
     else{
-      if(((dpad == DPAD_UP) && zButtonDelayed)){
+      if(((dpad == DPAD_UP_RIGHT) && zButtonDelayed)){
         if(((millis() >> 6) & 0x01) == 0x01){
           if (flipped == false){
             frame=frame ^ 0x01;
@@ -1861,10 +1888,11 @@ void updatedisplay(){
       //reset fist pump timer on status change
       if(pumped== true){
         //calculate period for auto pumping
-
+        beats++;
         //only switch in or out of auto pump on a cycle end
         if(auto_pump_primer == true){
           auto_pump = true;
+           
         }
         else{
           auto_pump = false;
@@ -1877,6 +1905,7 @@ void updatedisplay(){
           }
           auto_pump_timer = auto_pump_timer * .5 + (millis()-fist_pump_timer) *.5;
           Serial.println(auto_pump_timer);
+          //auto_pump_timer_offset = millis();
         }
         //  auto_pump_timer_start= millis();
         fist_pump_timer= millis();
@@ -1989,5 +2018,16 @@ void updatedisplay(){
   fade = tempfade;
   brightness = tempbrightness;
 }
+
+
+
+
+
+
+
+
+
+
+
 
 

@@ -327,6 +327,28 @@ while True:
 						
 					discvolts = float(''.join(discvolts))
 					
+					uptime = []
+					#wait one second to recieve a line of data back
+					deadline = time.time() + .5
+					while('\n' not in uptime):
+						while(droid.bluetoothReadReady().result == False):
+							if(time.time() > deadline):
+								raise Exception
+						uptime.append(droid.bluetoothRead(1).result)	
+						
+					uptime = int(''.join(uptime))
+					
+					beats = []
+					#wait one second to recieve a line of data back
+					deadline = time.time() + .5
+					while('\n' not in beats):
+						while(droid.bluetoothReadReady().result == False):
+							if(time.time() > deadline):
+								raise Exception
+						beats.append(droid.bluetoothRead(1).result)	
+						
+					beats = int(''.join(beats))
+					
 				except:
 					print "Exception During Sending."
 					time.sleep(10)
@@ -340,13 +362,13 @@ while True:
 					elif color == 385:
 						output +=  " Color1:RAINBOW Color2:#------"
 					else:
-						output += " Color1:"
+						output += " Color1:#"
 						for i in colorsys.hsv_to_rgb(color/384, 1.0, 1.0):
 							output += "".join('%02x' % (i*255)).upper()
 						
-					output += " Color2:"
+					output += " Color2:#"
 					if span == 0:
-						output += "#------"
+						output += "------"
 					else:
 						for i in colorsys.hsv_to_rgb((color + span)/384, 1.0, 1.0):
 							output +=  "".join('%02x' % (i*255)).upper()
@@ -360,7 +382,15 @@ while True:
 					output += " Suit:{0:2.2f}".format(15.08/759*jacketvolts) + "V"
 					output += " Disc:{0:2.2f}".format(11.11/693*discvolts) + "V"
 					
-								
+
+					hours, uptime = divmod(uptime, 3600000)
+					minutes, uptime = divmod(uptime, 60000)
+					seconds = float(uptime) / 1000
+					
+					output += " Uptime: %i:%02i:%06.3f" % (hours, minutes, seconds)
+					
+					output += " Beats:" + str(beats)
+					
 					print "Message from " + input.result[0]['address']  
 					print output
 					

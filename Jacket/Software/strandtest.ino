@@ -4,7 +4,8 @@
 #include "LPD8806.h"
 #include "SPI.h"
 #include "ArduinoNunchuk.h"
-
+#include "EEPROM.h"
+#include "avr/eeprom.h"
 #include <Wire.h>
 
 #define spanrange 64 //half range of the span gesture
@@ -41,35 +42,33 @@
 #define START_COMMAND 0x11
 
 //disc
-#define SET_COLOR 0x11
+#define SET_COLOR 0x11 //bidirection coms with disc.  Reply back double the value to confirm
 int last_set_color= -1 ;//set to impossible value to force send on boot
 
-
-#define SET_SPAN 0x13
+#define SET_SPAN 0x13  //bidirection coms with disc.  Reply back double the value to confirm
 int last_set_span=-1;//set to impossible value to force send on boot
 
-#define SET_FRAME1 0x15
-#define SET_FADE_BRIGHTNESS 0x15
+#define SET_FADE_BRIGHTNESS 0x15  //bidirection coms with disc.  Reply back double the value to confirm
 byte last_set_brightness=128; //set to impossible value to force sending first time
 byte last_set_fade=8;  //set to impossible value to force sending first time
 
-#define SET_FRAME2 0x17
+#define SET_RAINBOW 0x19  //sent to disc with rainbow offset value, no data returned
+#define TRIPLE_TAP 0x19  //recieved from disc to swap suit modes on triple tap
+#define TEXTING_REPLY 0x19  //recieved from phone to ask for stats
 
-//these two can overlap
-#define SET_RAINBOW 0x19  //no confirmation needed
-#define TRIPLE_TAP 0x19 
+#define CONFIRMED 0x11 //suit reply to bluetooth
 
-#define TEXTING_REPLY 0x19  
-#define BATTERY_LEVEL 0x1B 
-
-boolean flipped= false;
-
-//suit reply
-#define CONFIRMED 0x11
-
-
-int jacket_voltage=1024;
+#define BATTERY_LEVEL 0x1B  //recieved from disc with voltage data
+unsigned long heartbeat=0;  //keep track of when the disc last reported in its voltage
+int jacket_voltage=1024;  //voltage monitors
 int disc_voltage=0;
+
+boolean show_alt_frame = false;
+#define SET_FRAME1 0x15  //recieve from phone to set frame 1 data
+#define SET_FRAME2 0x17//recieve from phone to set frame 2 data
+unsigned long frame_timer=0;
+#define frametime 5000  //2 second alarm time
+
 
 //msgeq7 pins
 #define msgeq7_reset 3
@@ -87,11 +86,11 @@ byte spectrumValueMute[6];  //mutes selected channels
 //LPD8806 strip pins
 const int dataPin = 53;
 const int clockPin = 52;
-boolean staticdisplayloaded = false;
+
 //global indexes for strip for effects
 byte i = 0;
 int rainbowoffset = 383;
-byte auto_pump_multiplier=0;
+
 //accelerometer values
 unsigned int xtilt;
 unsigned int ytilt;
@@ -101,8 +100,7 @@ unsigned int ytilt;
 unsigned long fist_pump_timer=0;
 #define fistpump 2000  //2 second alarm time
 
-unsigned long frame_timer=0;
-#define frametime 5000  //2 second alarm time
+
 
 //displaying gesture data on lcd
 boolean pumped=false;
@@ -110,9 +108,9 @@ boolean pumped=false;
 unsigned int overlaytime;
 unsigned long overlaytimer=0;
 byte overlaystatus=0;
-byte  overlayprimer=0;
+byte overlayprimer=0;
 
-boolean textmessagemode=false;
+
 unsigned long beats=0;
 
 
@@ -125,6 +123,7 @@ byte brightness=0;
 byte overlaybrightness=0;
 byte fade=0;
 int color=0;  //the chosen color used for effects  0-383 is mapped to the color wheel  384 is white 385 is rainbow 512 is full white
+byte fadeprimer=0;
 
 int instantspan=0; //current span for effects set it to something between zero to span before calling wheel()
 int span=128;  //circle 0 128 256 384 512 mapped to 0 128 0 -128 0 
@@ -136,10 +135,11 @@ byte latch_flag=0;  //keep track of if we are in a gesture or not
 unsigned long latch_cool_down; //keep track of time  gesture ended at
 #define LATCHTIME 200  //milliseconds to cooldown
 
-//debug FPS calculations
-unsigned long fpstime=0;
-byte fps=0;
-byte fps_saved=0;
+//FPS calculations
+unsigned long fpstime=0; //keeps track of when the last cycle was
+byte fps=0;  //counts up
+byte fps_last=0; //saves the value
+
 //serial buffers
 byte serial2buffer[81];
 byte serial2bufferpointer = 0;
@@ -184,9 +184,7 @@ byte dpad = 0x00;
 #define DPAD_DEADZONE B00010000
 //makes sure dpad input is processed only once
 boolean dirpressed=false;
-byte batterywarning=0;
-byte fadeprimer=0;
-unsigned long heartbeat=0;
+
 
 LPD8806 strip_buffer_1 = LPD8806(20, dataPin, clockPin);
 LPD8806 strip_buffer_2 = LPD8806(20, dataPin, clockPin);
@@ -195,10 +193,22 @@ ArduinoNunchuk nunchuk = ArduinoNunchuk();
 MovingAverage xfilter = MovingAverage();
 MovingAverage yfilter = MovingAverage();
 //MovingAverage zfilter = MovingAverage();
-unsigned long effect_cooldown =0;
+
+
+unsigned long auto_pump_multiplier_cooldown =0;
 int auto_pump_timer = 1000;
 boolean auto_pump= false;
 boolean auto_pump_primer = false;
+byte auto_pump_multiplier=0;
+
+
+unsigned long eeprom_timer = 0;
+byte eeprom_status = 0;
+unsigned long eeprom_beats_starting =0;
+unsigned long eeprom_time_starting  =0;
+unsigned long eeprom_beats_current =0;
+unsigned long eeprom_time_current =0;
+
 void setup() {
 
   strip_buffer_1.begin();
@@ -209,13 +219,14 @@ void setup() {
   Serial2.begin(115200);  //BT
   Serial3.begin(115200);  //Helmet 
 
-
+  //strips
   pinMode(strip_1,OUTPUT);
   pinMode(strip_2,OUTPUT);
   pinMode(strip_3,OUTPUT);
   pinMode(strip_4,OUTPUT);
   pinMode(clockPin,OUTPUT);
   pinMode(dataPin,OUTPUT);
+
   //eq
   pinMode(msgeq7_strobe, OUTPUT);
   digitalWrite(msgeq7_strobe, HIGH);
@@ -227,25 +238,110 @@ void setup() {
   frame2[0]=0;
 
 
+  //load saved data from eeprom
+  eeprom_beats_starting = eeprom_beats_starting | EEPROM.read(0);
+  eeprom_beats_starting = eeprom_beats_starting << 8;
+  eeprom_beats_starting = eeprom_beats_starting | EEPROM.read(1);
+  eeprom_beats_starting = eeprom_beats_starting << 8;
+  eeprom_beats_starting = eeprom_beats_starting | EEPROM.read(2);
+  eeprom_beats_starting = eeprom_beats_starting << 8;
+  eeprom_beats_starting = eeprom_beats_starting | EEPROM.read(3);
 
+  eeprom_time_starting = eeprom_time_starting | EEPROM.read(4);
+  eeprom_time_starting = eeprom_time_starting << 8;
+  eeprom_time_starting = eeprom_time_starting | EEPROM.read(5);
+  eeprom_time_starting = eeprom_time_starting << 8;
+  eeprom_time_starting = eeprom_time_starting | EEPROM.read(6);
+  eeprom_time_starting = eeprom_time_starting << 8;
+  eeprom_time_starting = eeprom_time_starting | EEPROM.read(7);
+
+  eeprom_timer=millis();
+  sprintf((char*)&frame1[0],"Lifetime Minutes:");
+  sprintf((char*)&frame1[20],"%d",eeprom_time_starting);
+  sprintf((char*)&frame1[40],"Lifetime Beats:");
+  sprintf((char*)&frame1[60],"%d",eeprom_beats_starting);
+  memcpy(frame2,frame1,sizeof(frame1));
 }
-
 
 void loop() {
 
+  //save data to eeprom every minute, should last 70 days before hitting wear limit
+  //I'll manually wear level if needed
+
+  //only save one byte each cycle if the eeprom is ready so as not to impact frame rate.
+  //we run at about 60 FPS (14ms per frame) so as long as we only save one byte per cycle we are fine
+  //it takes about 4ms between writes for the eeprom to get ready again
+  if (millis() - eeprom_timer > 60000){
+    Serial.println(eeprom_status);
+    switch (eeprom_status){
+    case 0:
+      //snapshot current data
+      eeprom_beats_current = eeprom_beats_starting + beats;
+      eeprom_time_current  = eeprom_time_starting + (millis() /60000); //convert millis to minutes
+      eeprom_status++;
+      break;
+    case 1:
+      if (eeprom_is_ready() == true){
+        EEPROM.write(0,(byte)(eeprom_beats_current >> 24));
+        eeprom_status++;
+      }
+      break;
+    case 2:
+      if (eeprom_is_ready() == true){
+        EEPROM.write(1,(byte)(eeprom_beats_current >> 16));
+        eeprom_status++;
+      }
+      break;
+    case 3:
+      if (eeprom_is_ready() == true){
+        EEPROM.write(2,(byte)(eeprom_beats_current >> 8));
+        eeprom_status++;
+      }
+      break;
+    case 4:
+      if (eeprom_is_ready() == true){
+        EEPROM.write(3,(byte)eeprom_beats_current);
+        eeprom_status++;
+      }
+      break;
+    case 5:
+      if (eeprom_is_ready() == true){
+        EEPROM.write(4,(byte)(eeprom_time_current >> 24));
+        eeprom_status++;
+      }
+      break;
+    case 6:
+      if (eeprom_is_ready() == true){
+        EEPROM.write(5,(byte)(eeprom_time_current >> 16));
+        eeprom_status++;
+      }
+      break;
+    case 7:
+      if (eeprom_is_ready() == true){
+        EEPROM.write(6, (byte)(eeprom_time_current >> 8));
+        eeprom_status++;
+      }
+      break;
+    case 8:
+      if (eeprom_is_ready() == true){
+        EEPROM.write(7,(byte)eeprom_time_current);
+        eeprom_status=0;
+        eeprom_timer=millis();
+      }
+      break;
+    }
+
+
+  }
   //from zero to to full brightness the 5v line changes by a few mV due to sagging
   //the lower vref goes the higher the ADC thinks the battery is
   jacket_voltage = jacket_voltage * .97 + analogRead(1) * .03;
-  //multiply  jacket_voltage by 0.01986824769 or 
-  //approx 14V
   if (jacket_voltage < 720){
     fade=7;
   }
   // Serial.print(disc_voltage); // * 11.11/693 = volts
   //Serial.print(" ");
   // Serial.println(jacket_voltage); // * 15.08/759= volts
-
-
 
   //dont trust disc if it hasnt been heard from in 2 seconds
   if (millis() - heartbeat > 2000){
@@ -257,26 +353,20 @@ void loop() {
   }
 
   if (millis() - fpstime > 1000){
-    fps_saved = fps;
+    fps_last = fps;
+    Serial.println(fps);
     fps=0;
     fpstime=millis();
+
   }
   fps++;
 
-
   overlayprimer=0;
-
 
   readserial();    //service serial ports
   sendserial(); //send serial data
-
   nunchuk.update();       //read data from nunchuck
-
   nunchuckparse();  //filter inputs and set D-pad boolean mappings
-
-
-
-
 
 
   //reset variables for monitoring buttons
@@ -442,16 +532,15 @@ void loop() {
 
       break;
     case DPAD_DOWN:
-      if ( dirpressed==false) effect_cooldown = millis();
+      if ( dirpressed==false) auto_pump_multiplier_cooldown = millis();
       auto_pump_primer= true;
-      
-      if (millis() - effect_cooldown > 400){
+      if (millis() - auto_pump_multiplier_cooldown > 400){
         if(nunchuk.accelX > 1000||nunchuk.accelY > 1000 ||nunchuk.accelZ > 1000){
           if (auto_pump_multiplier<3 ) auto_pump_multiplier++;
-          effect_cooldown = millis();
+          auto_pump_multiplier_cooldown = millis();
         } 
       }
-      
+
       break;
     case DPAD_UP_LEFT:
       overlayprimer = 3;
@@ -1293,6 +1382,9 @@ void readserial(){
           else if(effectmode == 0){
             effectmode = 8;
           }
+          else{
+            effectmode = 0;
+          }
           break;
         }
       case SET_COLOR:
@@ -1422,7 +1514,7 @@ void readserial(){
         {
           Serial2.println(color); //COLOR1
           Serial2.println(SpanWheel(span));//COLOR2
-          Serial2.println(fps_saved); //FPS
+          Serial2.println(fps_last); //FPS
           Serial2.println(auto_pump_timer);  //BPM
           Serial2.println(jacket_voltage); //voltage
           Serial2.println(disc_voltage); //voltage
@@ -1707,9 +1799,9 @@ void updatedisplay(){
 
     if (millis() - frametime > frame_timer ){ 
       if(((millis() >> 9) & 0x01) == 0x01 ){
-        if (flipped == false){
+        if (show_alt_frame == false){
           frame=frame ^ 0x01;
-          flipped = true;
+          show_alt_frame = true;
           frame_timer = millis();
         }
       } 
@@ -1717,26 +1809,26 @@ void updatedisplay(){
     else{
       if(((dpad == DPAD_UP_RIGHT) && zButtonDelayed)){
         if(((millis() >> 6) & 0x01) == 0x01){
-          if (flipped == false){
+          if (show_alt_frame == false){
             frame=frame ^ 0x01;
-            flipped = true;
+            show_alt_frame = true;
             frame_timer = millis();
           }
         } 
         else{
-          flipped = false; 
+          show_alt_frame = false; 
         }
       }
       else{
         if (latch_flag == 4 || latch_flag == 5){
-          if (flipped == false){
+          if (show_alt_frame == false){
             frame=frame ^ 0x01;
-            flipped = true;
+            show_alt_frame = true;
             frame_timer = millis();
           }
         }
         else{
-          flipped = false; 
+          show_alt_frame = false; 
         }
       }
     }
@@ -1892,7 +1984,7 @@ void updatedisplay(){
         //only switch in or out of auto pump on a cycle end
         if(auto_pump_primer == true){
           auto_pump = true;
-           
+
         }
         else{
           auto_pump = false;
@@ -2018,6 +2110,20 @@ void updatedisplay(){
   fade = tempfade;
   brightness = tempbrightness;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

@@ -1520,6 +1520,8 @@ void readserial(){
           Serial2.println(disc_voltage); //voltage
           Serial2.println(millis()); //uptime
           Serial2.println(beats);
+          Serial2.println(eeprom_time_starting); //minutes
+          Serial2.println(eeprom_beats_starting);
           break;
         }
       default:

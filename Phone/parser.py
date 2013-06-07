@@ -349,6 +349,28 @@ while True:
 						
 					beats = int(''.join(beats))
 					
+					lifetimeuptime = []
+					#wait one second to recieve a line of data back
+					deadline = time.time() + .5
+					while('\n' not in lifetimeuptime):
+						while(droid.bluetoothReadReady().result == False):
+							if(time.time() > deadline):
+								raise Exception
+						lifetimeuptime.append(droid.bluetoothRead(1).result)	
+						
+					lifetimeuptime = int(''.join(lifetimeuptime))
+					
+					lifetimebeats = []
+					#wait one second to recieve a line of data back
+					deadline = time.time() + .5
+					while('\n' not in lifetimebeats):
+						while(droid.bluetoothReadReady().result == False):
+							if(time.time() > deadline):
+								raise Exception
+						lifetimebeats.append(droid.bluetoothRead(1).result)	
+						
+					lifetimebeats = int(''.join(lifetimebeats))
+					
 				except:
 					print "Exception During Sending."
 					time.sleep(10)
@@ -356,7 +378,7 @@ while True:
 					
 					sent=True
 					
-					output = "Confirmed. Status Report."
+					output = "Confirmed. Status Report:"
 					if color == 384:
 						output +=  " Color1:#FFFFFF Color2:#------"
 					elif color == 385:
@@ -382,18 +404,29 @@ while True:
 					output += " Suit:{0:2.2f}".format(15.08/759*jacketvolts) + "V"
 					output += " Disc:{0:2.2f}".format(11.11/693*discvolts) + "V"
 					
-
-					hours, uptime = divmod(uptime, 3600000)
-					minutes, uptime = divmod(uptime, 60000)
-					seconds = float(uptime) / 1000
+					uptime = (uptime / 1000) #convert milliseconds to seconds
+	
+					hours, time_remainder = divmod(uptime, 3600)
+					minutes, time_remainder = divmod(time_remainder, 60)
+					seconds = time_remainder
 					
-					output += " Uptime: %i:%02i:%06.3f" % (hours, minutes, seconds)
+					output += " Uptime: %i:%02i:%02i" % (hours, minutes, seconds)
 					
 					output += " Beats:" + str(beats)
 					
+					uptime = uptime + (lifetimeuptime * 60) #convert minutes to seconds and add
+					
+					hours, time_remainder = divmod(uptime, 3600)
+					minutes, time_remainder = divmod(time_remainder, 60)
+					seconds = time_remainder
+					
+					output += " Lifetime: %i:%02i:%02i" % (hours, minutes, seconds)
+					
+					output += " Beats:" + str(beats + lifetimebeats)
+					
 					print "Message from " + input.result[0]['address']  
 					print output
-					
+				
 					droid.smsMarkMessageRead([input.result[0]['_id']],True)
 					droid.smsSend(input.result[0]['address'] ,output)
 					print "Ready..."

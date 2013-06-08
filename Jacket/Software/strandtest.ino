@@ -60,14 +60,11 @@ byte last_set_fade=8;  //set to impossible value to force sending first time
 
 #define BATTERY_LEVEL 0x1B  //recieved from disc with voltage data
 unsigned long heartbeat=0;  //keep track of when the disc last reported in its voltage
-int jacket_voltage=1024;  //voltage monitors
-int disc_voltage=0;
+unsigned int jacket_voltage=1024;  //voltage monitors
+unsigned int disc_voltage=0;
 
-boolean show_alt_frame = false;
 #define SET_FRAME1 0x15  //recieve from phone to set frame 1 data
 #define SET_FRAME2 0x17//recieve from phone to set frame 2 data
-unsigned long frame_timer=0;
-#define frametime 5000  //2 second alarm time
 
 
 //msgeq7 pins
@@ -147,12 +144,19 @@ byte serial2payloadsize=0;
 byte serial1payloadsize=0; 
 byte frame1[80] = "                                                                               ";
 byte frame2[80] = "                                                                               ";
-byte frame=0;
+
+byte frame_mode=0;
+boolean frame_toggle_primer=false;
+boolean frame_toggle=false;
+byte animation_speed = 0;
 byte serial1buffer[3];
 byte serial1bufferpointer = 0;
-unsigned long message_timer=0;
-#define MESSAGETIMEOUT 60000 
-unsigned long ring_timer=0;
+boolean diag_toggle_primer = false;
+unsigned long display_timer=0;  //go back to default display in 60 seconds
+#define DISPLAYTIMEOUT 60000 
+unsigned long frame_timer=0;  //switch to alt frame every 5 seconds
+#define FRAMETIMEOUT 5000 
+unsigned long ring_timer=0; //flash screen to ring for incoming message
 #define RINGTIMEOUT 1000 
 
 //these filter the inputs from the buttons
@@ -234,8 +238,7 @@ void setup() {
   digitalWrite(msgeq7_reset, LOW);
   analogReference(DEFAULT);
 
-  frame1[0]=0;
-  frame2[0]=0;
+
 
 
   //load saved data from eeprom
@@ -272,7 +275,6 @@ void loop() {
   //we run at about 60 FPS (14ms per frame) so as long as we only save one byte per cycle we are fine
   //it takes about 4ms between writes for the eeprom to get ready again
   if (millis() - eeprom_timer > 60000){
-    Serial.println(eeprom_status);
     switch (eeprom_status){
     case 0:
       //snapshot current data
@@ -357,12 +359,12 @@ void loop() {
     Serial.println(fps);
     fps=0;
     fpstime=millis();
-
   }
   fps++;
 
-  overlayprimer=0;
 
+  overlayprimer=0;
+  animation_speed=0;
   readserial();    //service serial ports
   sendserial(); //send serial data
   nunchuk.update();       //read data from nunchuck
@@ -517,6 +519,8 @@ void loop() {
       }
     }
   }
+
+
   //basic setttings and span gestures
   if (zButtonDelayed){
     fadeprimer =0;
@@ -547,15 +551,28 @@ void loop() {
       fadeprimer = 2;
       break;
     case DPAD_DOWN_RIGHT:
-      message_timer=0;
+      if( dirpressed == false){
+        diag_toggle_primer=true;
+      }
+      display_timer=millis();  //reset timers
+      frame_timer=display_timer;
       break;
     case DPAD_UP_RIGHT:
-      message_timer=millis();
+      animation_speed=5; //speed up while held
+      if( dirpressed == false){
+        if (color != 385 && frame_mode != 2){
+          frame_mode=1;  //force to pattern 1 when not in nyan mode or in mode 2
+        }
+        frame_toggle_primer=true;
+        display_timer=millis();  //reset timers
+        frame_timer=display_timer;
+      }
       break;
     case DPAD_DOWN_LEFT:
       fadeprimer = 1;
       overlayprimer = 1;
       break;
+
     }
 
     //generate one change
@@ -1376,13 +1393,14 @@ void readserial(){
         }
       case TRIPLE_TAP:
         {
-          if(effectmode == 8){
-            effectmode = 0;
-          }
-          else if(effectmode == 0){
+          switch(effectmode){
+          case 0:
             effectmode = 8;
-          }
-          else{
+            break;
+          case 8:
+            effectmode = 0;
+            break;
+          default:
             effectmode = 0;
           }
           break;
@@ -1491,7 +1509,8 @@ void readserial(){
           break;
         }
       case SET_FRAME1:
-        message_timer=0;
+        display_timer=0;
+
         ring_timer=millis();
         Serial2.write(CONFIRMED);
         {
@@ -1502,7 +1521,9 @@ void readserial(){
         Serial2.write(CONFIRMED);
         {
           memcpy(frame2,&serial2buffer[1],sizeof(frame2));
-          message_timer=millis();
+          display_timer=millis();
+          frame_timer= display_timer;
+          frame_mode = 1;
           //turn on to static mode full bright when disabled
           if (fade == 7){
             effectmode=8;
@@ -1541,7 +1562,7 @@ void readserial(){
 
 void nunchuckparse(){
   byte dpadtemp =0x00;
-  if(nunchuk.analogMagnitude > 40){
+  if(nunchuk.analogMagnitude > 35){
     if (nunchuk.analogAngle < 10 && nunchuk.analogAngle > -10){
       dpadtemp = DPAD_LEFT;
     }
@@ -1673,7 +1694,6 @@ void nunchuckparse(){
 void sendserial(){
 
 
-
   if (last_set_color != color){
     Serial1.write(SET_COLOR);
     Serial1.write((color >> 6) & 0xFE); //transmit higher bits
@@ -1769,13 +1789,10 @@ void updatedisplay(){
   }
 
 
-
-
   long int tempcolor =Wheel(color);
   byte r = (tempcolor>> 8)& 0x7F;
   byte g  = (tempcolor>> 16)& 0x7F;
   byte b = (tempcolor>>0) & 0x7F;
-
 
 
   //build a data packet to send to the helmet
@@ -1789,89 +1806,92 @@ void updatedisplay(){
     }
   }
 
-
   //output RGB to LCD backlight
   Serial3.write(r<<1);//r
   Serial3.write(g<<1);//g
   Serial3.write(b<<1);//b
 
-
-  //both frames are loaded, go go animation
-  if(millis() < MESSAGETIMEOUT + message_timer){
-
-    if (millis() - frametime > frame_timer ){ 
-      if(((millis() >> 9) & 0x01) == 0x01 ){
-        if (show_alt_frame == false){
-          frame=frame ^ 0x01;
-          show_alt_frame = true;
-          frame_timer = millis();
-        }
-      } 
+  //reset to default display if timer ran out
+  if(millis() - display_timer > DISPLAYTIMEOUT){
+    frame_mode = 0;
+  }
+  else{
+    //forced nyan entry
+    if(color == 385 && (frame_mode != 4 && frame_mode != 3)){
+      frame_mode = 3;
     }
-    else{
-      if(((dpad == DPAD_UP_RIGHT) && zButtonDelayed)){
-        if(((millis() >> 6) & 0x01) == 0x01){
-          if (show_alt_frame == false){
-            frame=frame ^ 0x01;
-            show_alt_frame = true;
-            frame_timer = millis();
-          }
-        } 
-        else{
-          show_alt_frame = false; 
-        }
-      }
-      else{
-        if (latch_flag == 4 || latch_flag == 5){
-          if (show_alt_frame == false){
-            frame=frame ^ 0x01;
-            show_alt_frame = true;
-            frame_timer = millis();
-          }
-        }
-        else{
-          show_alt_frame = false; 
-        }
-      }
+    //forced nyan exit
+    if(color != 385 && (frame_mode == 4 || frame_mode == 3)){
+      frame_mode = 0;
+      display_timer = 0;
     }
 
+    if(diag_toggle_primer== true){
+      switch(frame_mode){
+      case 0:
+        frame_mode = 5;
+        break;
+      case 1:
+      case 2:
+      case 3:
+      case 4:
+        frame_mode = 0;
+        break;
+      case 5:
+        frame_mode = 6;
+        break;
+      case 6:
+        frame_mode = 7;
+        break;
+      case 7:
+        frame_mode = 8;
+        break;
+      }
 
-    if (color == 385){
-      if(frame == 0){
-        Serial3.print(F("-_-_-_-_,------,    _-_-_-_-|   /\\_/\\   -_-_-_-~|__( ^ .^)  _-_-_-_-  \"\"  \"\"    "));
-      }
-      else if (frame == 1){  
-        Serial3.print(F("_-_-_-_-,------,    -_-_-_-_|   /\\_/\\   --_-_-_~|__(^ .^ )  -_-_-_-_ \"\"  \"\"     "));
-      }
+      diag_toggle_primer=false;
     }
-    else{
-      if(frame == 0){
-        for (byte i=0; i<80; i++ ) {
-          Serial3.write(frame2[i]);
-        }
+
+    //only stay in diag modes while holding button
+    if( frame_mode > 4 && (dpad & 0x0F) == 0x00){
+      frame_mode=0;
+    }
+
+    //toggle effects otherwise
+    if(frame_toggle_primer==true || millis()-frame_timer >( FRAMETIMEOUT >> animation_speed)){
+      switch(frame_mode){
+      case 1:
+        frame_mode = 2;
+        break;
+      case 2:
+        frame_mode = 1;
+        break;
+      case 3:
+        frame_mode = 4;
+        break;
+      case 4:
+        frame_mode = 3;
+        break;
       }
-      else if (frame == 1){  
-        for (byte i=0; i<80; i++ ) {
-          Serial3.write(frame1[i]);
-        }
-      }
+      frame_toggle_primer=false;
+      frame_timer =millis();
     }
   }
 
-  else{
+
+
+  switch (frame_mode){
+  case 5:
+  case 0:  //EQ mode
     Serial3.print(effectmode);
     Serial3.print("  ");
     //update first line of LCD screen
     Serial3.print("R");
-
     if (r < 10){
       Serial3.print("00");
     } 
     else if (r <100)
       Serial3.print ("0");
     Serial3.print(r,10);
-
-
     Serial3.print(" G");
     if (g < 10){
       Serial3.print("00");
@@ -1879,8 +1899,6 @@ void updatedisplay(){
     else if (g <100)
       Serial3.print ("0");
     Serial3.print(g,10);
-
-
     Serial3.print(" B");
     if (b < 10){
       Serial3.print("00");
@@ -1888,30 +1906,114 @@ void updatedisplay(){
     else if (b <100)
       Serial3.print ("0");
     Serial3.print(b,10);
-
-
     Serial3.print(" ");
     Serial3.print(outputmode);
-    Serial3.print(fade);
-
+    Serial3.print(tempfade);
     //update 2nd  line of LCD screen R values
-
     for (byte i=0; i<20; i++ ) {
       Serial3.write((strip_buffer_1.pixels[i*3+1] & 0x7F)>>4);
     }
-
     // update 3rd  line of LCD screen G values
     for (byte i=0; i<20; i++ ) {
       Serial3.write((strip_buffer_1.pixels[i*3]& 0x7F)>>4);
     }
-
     //update 4th  line of LCD screen B values
     for (byte i=0; i<20; i++ ) {
       Serial3.write((strip_buffer_1.pixels[i*3+2]& 0x7F) >>4 );
     }
+    break;
+  case 1://Text 1
+    for (byte i=0; i<80; i++ ) {
+      Serial3.write(frame1[i]);
+    }
+    break;
+  case 2://Text 2
+    for (byte i=0; i<80; i++ ) {
+      Serial3.write(frame2[i]);
+    }
+    break;
+  case 3://nyan1
+    Serial3.print(F("-_-_-_-_,------,    _-_-_-_-|   /\\_/\\   -_-_-_-~|__( ^ .^)  _-_-_-_-  \"\"  \"\"    "));
+    break;
+  case 4://nyan2
+    Serial3.print(F("_-_-_-_-,------,    -_-_-_-_|   /\\_/\\   --_-_-_~|__(^ .^ )  -_-_-_-_ \"\"  \"\"     "));
+    break;
+  case 6://announcement
+    {
+      Serial3.print(F("Placeholder         Placeholder         Placeholder         Placeholder         "));
+    }
+    break;
+  case 7://stats 1
+    {
+      //scratch pad for numbers
+      char temp[15];
 
+      //line1
+      dtostrf(jacket_voltage * 0.01986824769,5,2,temp);
+      Serial3.print("    Suit: ");
+      Serial3.print(temp);
+      Serial3.print("V    ");
+      //line2
+      dtostrf(disc_voltage * 0.01603174603,5,2,temp);
+      Serial3.print("    Disc: ");
+      Serial3.print(temp);
+      Serial3.print("V    ");
+      //line3
+      Serial3.print("Uptime: ");
+      long int timeNow =millis();                  
+      int hours = timeNow  / 3600000;                    
+      int minutes = (timeNow  % 3600000) / 60000;
+      int seconds = ((timeNow % 3600000) % 60000) / 1000;
+      int fractime = (((timeNow % 3600000) % 60000) % 1000);
+      sprintf(temp, "%02d:%02d:%02d.%03d", hours, minutes, seconds, fractime);
+      Serial3.print(temp);
+      //line4
+      Serial3.print("Beats:  ");
+      dtostrf(beats,12,0,temp);
+      Serial3.print(temp);
+
+    }
+    break;
+  case 8:
+    {
+      //scratch pad for numbers
+      char temp[15];
+      //line1
+      dtostrf(fps_last,3,0,temp);
+      Serial3.print(" FPS: ");
+      Serial3.print(temp);
+      Serial3.print("  BPM: ");
+      if(auto_pump_timer==1000){
+        Serial3.print(" --");
+      }
+      else{
+        dtostrf(60000/auto_pump_timer,3,0,temp); 
+        Serial3.print(temp);
+      }
+      Serial3.print(" ");
+      //line2
+      Serial3.print("  Lifetime Stats:   ");
+      //line3
+      Serial3.print("Uptime: ");
+      long int timeNow =(eeprom_time_starting *60)+ (millis() /1000) ;
+      int days = timeNow / 86400 ;                                
+      int hours = (timeNow % 86400) / 3600;                    
+      int minutes = ((timeNow % 86400) % 3600) / 60;
+      int seconds = (((timeNow % 86400) % 3600) % 60);
+      sprintf(temp, "%02dD %02d:%02d:%02d", days, hours, minutes, seconds);
+      Serial3.print(temp);
+      //line4
+      Serial3.print("Beats: ");
+      dtostrf(eeprom_beats_starting + beats,13,0,temp);
+      Serial3.print(temp);
+    }
+    break;
   }
 
+
+
+
+  //calculate indicator LEDs and related things
 
   byte gpio=0x00;
   //if not double tapped, determine LED1 and 2 below
@@ -2080,6 +2182,7 @@ void updatedisplay(){
     }
     else if (ytilt == 254 ){
       pumped=true;
+
     }
 
     //if timer has ran out, set off alarm
@@ -2112,23 +2215,6 @@ void updatedisplay(){
   fade = tempfade;
   brightness = tempbrightness;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

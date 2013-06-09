@@ -378,7 +378,7 @@ while True:
 					
 					sent=True
 					
-					output = "Confirmed. Status Report:"
+					output = "Confirmation Report:"
 					if color == 384:
 						output +=  " Color1:#FFFFFF Color2:#------"
 					elif color == 385:
@@ -416,17 +416,23 @@ while True:
 					
 					uptime = uptime + (lifetimeuptime * 60) #convert minutes to seconds and add
 					
-					hours, time_remainder = divmod(uptime, 3600)
+					days, time_remainder = divmod(uptime, 86400)
+					hours, time_remainder = divmod(time_remainder, 3600)
 					minutes, time_remainder = divmod(time_remainder, 60)
 					seconds = time_remainder
 					
-					output += " Lifetime: %i:%02i:%02i" % (hours, minutes, seconds)
+					output += " Lifetime: %iD %02i:%02i:%02i" % (days,hours, minutes, seconds)
 					
 					output += " Beats:" + str(beats + lifetimebeats)
 					
 					print "Message from " + input.result[0]['address']  
 					print output
-				
+					myfile = open('log.txt', 'a')
+					myfile.write(time.asctime() + "\n")
+					myfile.write(input.result[0]['body']+ "\n")
+					myfile.write(input.result[0]['address']+ "\n")
+					myfile.write(output + "\n")
+					myfile.close()
 					droid.smsMarkMessageRead([input.result[0]['_id']],True)
 					droid.smsSend(input.result[0]['address'] ,output)
 					print "Ready..."

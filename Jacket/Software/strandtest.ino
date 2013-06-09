@@ -91,36 +91,29 @@ int rainbowoffset = 383;
 //accelerometer values
 unsigned int xtilt;
 unsigned int ytilt;
-//unsigned int ztilt;  not used
 
 //keeps track of how long its been since last pump, and blinks indicator if its been "too" long
-unsigned long fist_pump_timer=0;
+
 #define fistpump 2000  //2 second alarm time
 
-
-
 //displaying gesture data on lcd
-boolean pumped=false;
+boolean beat_completed=false;
 //overlay duration variable
-unsigned int overlaytime;
-unsigned long overlaytimer=0;
-byte overlaystatus=0;
-byte overlayprimer=0;
-
-
-unsigned long beats=0;
-
+unsigned int overlay_duration;
+unsigned long overlay_starting_time=0;
+byte overlay_mode=0;
+byte overlay_primer=0;
 
 //modes
-byte effectbuffer_mode = 0;
-byte ratchet = 1;
-byte effectmode = 0;
-byte outputmode = 0;
+byte effectbuffer_mode = 0; //choose which buffer combination to display
+byte active_segment = 1;  //for mode #7, keeps track of which of 5 segments to light
+byte effect_mode = 0;
+byte output_mode = 0;
 byte brightness=0;
-byte overlaybrightness=0;
+byte overlay_brightness=0;
 byte fade=0;
 int color=0;  //the chosen color used for effects  0-383 is mapped to the color wheel  384 is white 385 is rainbow 512 is full white
-byte fadeprimer=0;
+byte fade_primer=0;
 
 int instantspan=0; //current span for effects set it to something between zero to span before calling wheel()
 int span=128;  //circle 0 128 256 384 512 mapped to 0 128 0 -128 0 
@@ -133,7 +126,7 @@ unsigned long latch_cool_down; //keep track of time  gesture ended at
 #define LATCHTIME 200  //milliseconds to cooldown
 
 //FPS calculations
-unsigned long fpstime=0; //keeps track of when the last cycle was
+unsigned long fps_time=0; //keeps track of when the last cycle was
 byte fps=0;  //counts up
 byte fps_last=0; //saves the value
 
@@ -174,7 +167,7 @@ unsigned long cButtonTimer;
 unsigned long zButtonTimer;
 unsigned long dpadTimer;
 //stick data
-byte dpadlast = 0x00; 
+byte dpad_previous = 0x00; 
 byte dpad = 0x00;
 //dpad masks
 #define DPAD_LEFT B00001000
@@ -187,8 +180,7 @@ byte dpad = 0x00;
 #define DPAD_DOWN_LEFT B00001100
 #define DPAD_DEADZONE B00010000
 //makes sure dpad input is processed only once
-boolean dirpressed=false;
-
+boolean input_processed=false;
 
 LPD8806 strip_buffer_1 = LPD8806(20, dataPin, clockPin);
 LPD8806 strip_buffer_2 = LPD8806(20, dataPin, clockPin);
@@ -196,18 +188,17 @@ LPD8806 strip_buffer_2 = LPD8806(20, dataPin, clockPin);
 ArduinoNunchuk nunchuk = ArduinoNunchuk();
 MovingAverage xfilter = MovingAverage();
 MovingAverage yfilter = MovingAverage();
-//MovingAverage zfilter = MovingAverage();
 
+int bpm_period = 1000;  //period in milliseconds
+unsigned long bpm_starting_time=0; //keeps track of when the bmp is sampled
+byte auto_pump_mode = 0; //0 is off, 1 is on, and higher than that is turbo modes
+boolean auto_pump = false;   //autopump mode, do not set this variable, it is automatically set based on auto_pump_mode at the end of a beat
+byte auto_pump_multiplier=0;  //autopump mode, do not set this variable, it is automatically set based on auto_pump_mode at the end of a beat
 
-unsigned long auto_pump_multiplier_cooldown =0;
-int auto_pump_timer = 1000;
-boolean auto_pump= false;
-boolean auto_pump_primer = false;
-byte auto_pump_multiplier=0;
-
+unsigned long beats=0; //total number of beats, only used for stats
 
 unsigned long eeprom_timer = 0;
-byte eeprom_status = 0;
+byte eeprom_mode = 0;
 unsigned long eeprom_beats_starting =0;
 unsigned long eeprom_time_starting  =0;
 unsigned long eeprom_beats_current =0;
@@ -238,9 +229,6 @@ void setup() {
   digitalWrite(msgeq7_reset, LOW);
   analogReference(DEFAULT);
 
-
-
-
   //load saved data from eeprom
   eeprom_beats_starting = eeprom_beats_starting | EEPROM.read(0);
   eeprom_beats_starting = eeprom_beats_starting << 8;
@@ -258,81 +246,83 @@ void setup() {
   eeprom_time_starting = eeprom_time_starting << 8;
   eeprom_time_starting = eeprom_time_starting | EEPROM.read(7);
 
-  eeprom_timer=millis();
+  //load initial data into text messaging buffers
   sprintf((char*)&frame1[0],"Lifetime Minutes:");
   sprintf((char*)&frame1[20],"%d",eeprom_time_starting);
   sprintf((char*)&frame1[40],"Lifetime Beats:");
   sprintf((char*)&frame1[60],"%d",eeprom_beats_starting);
   memcpy(frame2,frame1,sizeof(frame1));
+
+  //start the timer, it will save to eeprom in one minute from this
+  eeprom_timer=millis();
 }
 
 void loop() {
 
   //save data to eeprom every minute, should last 70 days before hitting wear limit
-  //I'll manually wear level if needed
+  //I'll manually wear level if needed, there is 4k of eeprom on a mega, and im saving 8 bytes
 
   //only save one byte each cycle if the eeprom is ready so as not to impact frame rate.
   //we run at about 60 FPS (14ms per frame) so as long as we only save one byte per cycle we are fine
   //it takes about 4ms between writes for the eeprom to get ready again
   if (millis() - eeprom_timer > 60000){
-    switch (eeprom_status){
+    switch (eeprom_mode){
     case 0:
       //snapshot current data
       eeprom_beats_current = eeprom_beats_starting + beats;
       eeprom_time_current  = eeprom_time_starting + (millis() /60000); //convert millis to minutes
-      eeprom_status++;
+      eeprom_mode++;
       break;
     case 1:
       if (eeprom_is_ready() == true){
         EEPROM.write(0,(byte)(eeprom_beats_current >> 24));
-        eeprom_status++;
+        eeprom_mode++;
       }
       break;
     case 2:
       if (eeprom_is_ready() == true){
         EEPROM.write(1,(byte)(eeprom_beats_current >> 16));
-        eeprom_status++;
+        eeprom_mode++;
       }
       break;
     case 3:
       if (eeprom_is_ready() == true){
         EEPROM.write(2,(byte)(eeprom_beats_current >> 8));
-        eeprom_status++;
+        eeprom_mode++;
       }
       break;
     case 4:
       if (eeprom_is_ready() == true){
         EEPROM.write(3,(byte)eeprom_beats_current);
-        eeprom_status++;
+        eeprom_mode++;
       }
       break;
     case 5:
       if (eeprom_is_ready() == true){
         EEPROM.write(4,(byte)(eeprom_time_current >> 24));
-        eeprom_status++;
+        eeprom_mode++;
       }
       break;
     case 6:
       if (eeprom_is_ready() == true){
         EEPROM.write(5,(byte)(eeprom_time_current >> 16));
-        eeprom_status++;
+        eeprom_mode++;
       }
       break;
     case 7:
       if (eeprom_is_ready() == true){
         EEPROM.write(6, (byte)(eeprom_time_current >> 8));
-        eeprom_status++;
+        eeprom_mode++;
       }
       break;
     case 8:
       if (eeprom_is_ready() == true){
         EEPROM.write(7,(byte)eeprom_time_current);
-        eeprom_status=0;
+        eeprom_mode=0;
         eeprom_timer=millis();
       }
       break;
     }
-
 
   }
   //from zero to to full brightness the 5v line changes by a few mV due to sagging
@@ -342,7 +332,6 @@ void loop() {
     fade=7;
   }
   // Serial.print(disc_voltage); // * 11.11/693 = volts
-  //Serial.print(" ");
   // Serial.println(jacket_voltage); // * 15.08/759= volts
 
   //dont trust disc if it hasnt been heard from in 2 seconds
@@ -354,114 +343,109 @@ void loop() {
     disc_voltage=0;
   }
 
-  if (millis() - fpstime > 1000){
+  if (millis() - fps_time > 1000){
     fps_last = fps;
-    Serial.println(fps);
     fps=0;
-    fpstime=millis();
+    fps_time=millis();
   }
   fps++;
 
-
-  overlayprimer=0;
+  //reset flags
+  overlay_primer=0;
   animation_speed=0;
-  readserial();    //service serial ports
-  sendserial(); //send serial data
-  nunchuk.update();       //read data from nunchuck
-  nunchuckparse();  //filter inputs and set D-pad boolean mappings
 
+  readserial();     //read serial data
+  sendserial();     //send serial data
+  nunchuk.update(); //read data from nunchuck
+  nunchuckparse();  //filter inputs and set D-pad boolean mappings
 
   //reset variables for monitoring buttons
   if (nunchuk.zButton == 0 && nunchuk.cButton == 0 ){
-    dirpressed=false;
+    input_processed=false;
     latch_flag=0;   
   }
   //colors
-  //effectmode and outputmode settings
+  //effect_mode and output_mode settings
   else if (nunchuk.cButton == 1 && nunchuk.zButton == 1){
-
     //generate one pulse on any input
     if((dpad & 0x0F) != 0x00){
       //opening overlay pulse
-      if(fade == 7 || effectmode ==8){
-        overlayprimer=4;
+      if(fade == 7 || effect_mode ==8){
+        overlay_primer=4;
       }
-      if (dirpressed == false){ 
+      if (input_processed == false){ 
         //quick one time overlay pulse event to hide transitions
-        if (fade!=7 && effectmode !=8 && effectmode !=7){
-          overlayprimer=2;
+        if (fade!=7 && effect_mode !=8 && effect_mode !=7){
+          overlay_primer=2;
         }
-
       }
-      dirpressed= true;       
+      input_processed= true;       
     }
     else {
-      dirpressed = false;
+      input_processed = false;
     }
 
-
-    //double tap outputmodes
+    //double tap output_modes
     if(zc_doubletap_status == 3){
       switch (dpad){
       case DPAD_LEFT:
-        outputmode =2;
+        output_mode =2;
         break;
       case DPAD_RIGHT:
-        outputmode =6;
+        output_mode =6;
         break;
       case DPAD_UP:
-        outputmode =4;
+        output_mode =4;
         break;
       case DPAD_DOWN:
-        outputmode =0;
+        output_mode =0;
         break;
       case DPAD_UP_LEFT:
-        outputmode =3;
+        output_mode =3;
         break;
       case DPAD_DOWN_RIGHT:
-        outputmode =7;
+        output_mode =7;
         break;
       case DPAD_UP_RIGHT:
-        outputmode =5;
+        output_mode =5;
         break;
       case DPAD_DOWN_LEFT:
-        outputmode =1;
+        output_mode =1;
         break;
       }
     }
 
     //single tap effect modes
     else { 
-
-      if(overlayprimer!=4){
+      if(overlay_primer!=4){
         //reset buffer mode on effect changes
         if((dpad & 0x0F) != 0x00){
           effectbuffer_mode=0;
         }
         switch (dpad){
         case DPAD_LEFT:
-          effectmode =2;
+          effect_mode =2;
           break;
         case DPAD_RIGHT:
-          effectmode =6;
+          effect_mode =6;
           break;
         case DPAD_UP:
-          effectmode =4;
+          effect_mode =4;
           break;
         case DPAD_DOWN:
-          effectmode =0;
+          effect_mode =0;
           break;
         case DPAD_UP_LEFT:
-          effectmode =3;
+          effect_mode =3;
           break;
         case DPAD_DOWN_RIGHT:
-          effectmode =7;
+          effect_mode =7;
           break;
         case DPAD_UP_RIGHT:
-          effectmode =5;
+          effect_mode =5;
           break;
         case DPAD_DOWN_LEFT:
-          effectmode =1;
+          effect_mode =1;
           break;
         }
       }
@@ -469,9 +453,6 @@ void loop() {
   }
 
   if (cButtonDelayed  ){
-
-
-
     switch (dpad){
     case DPAD_LEFT:
       color= 0; //red
@@ -509,13 +490,8 @@ void loop() {
       if (color < 384){  
         //color gesture
         color = gesture(color,colorrange);
-
         //wrap color to circle
         color =(color+384) % 384;
-      }
-      else{
-        //unused gesture for special color modes so ascii animation still works
-        gesture(color,colorrange);
       }
     }
   }
@@ -523,7 +499,7 @@ void loop() {
 
   //basic setttings and span gestures
   if (zButtonDelayed){
-    fadeprimer =0;
+    fade_primer =0;
     switch (dpad){
     case DPAD_LEFT: //arm chest switch
       effectbuffer_mode=1;
@@ -532,26 +508,21 @@ void loop() {
       effectbuffer_mode = 3;
       break;
     case DPAD_UP:
-      auto_pump_primer=false;
-
+      if( input_processed == false){
+        auto_pump_mode=0;
+      }
       break;
     case DPAD_DOWN:
-      if ( dirpressed==false) auto_pump_multiplier_cooldown = millis();
-      auto_pump_primer= true;
-      if (millis() - auto_pump_multiplier_cooldown > 400){
-        if(nunchuk.accelX > 1000||nunchuk.accelY > 1000 ||nunchuk.accelZ > 1000){
-          if (auto_pump_multiplier<3 ) auto_pump_multiplier++;
-          auto_pump_multiplier_cooldown = millis();
-        } 
+      if( input_processed == false){
+        auto_pump_mode++;
       }
-
       break;
     case DPAD_UP_LEFT:
-      overlayprimer = 3;
-      fadeprimer = 2;
+      overlay_primer = 3;
+      fade_primer = 2;
       break;
     case DPAD_DOWN_RIGHT:
-      if( dirpressed == false){
+      if( input_processed == false){
         diag_toggle_primer=true;
       }
       display_timer=millis();  //reset timers
@@ -559,7 +530,7 @@ void loop() {
       break;
     case DPAD_UP_RIGHT:
       animation_speed=5; //speed up while held
-      if( dirpressed == false){
+      if( input_processed == false){
         if (color != 385 && frame_mode != 2){
           frame_mode=1;  //force to pattern 1 when not in nyan mode or in mode 2
         }
@@ -569,37 +540,33 @@ void loop() {
       }
       break;
     case DPAD_DOWN_LEFT:
-      fadeprimer = 1;
-      overlayprimer = 1;
+      fade_primer = 1;
+      overlay_primer = 1;
       break;
-
     }
 
     //generate one change
     if((dpad & 0x0F) != 0x00){
-      dirpressed = true;
+      input_processed = true;
     }
     else {
-      dirpressed = false;
+      input_processed = false;
       //span gesture
       span = gesture(span,spanrange);
       //wrap span to circle
       span =(span+512) % 512;
     }
   }
-  else{
 
-    auto_pump_multiplier=0;
-  }
 
   //adjust fade on combo release
-  if (fadeprimer == 2&& dirpressed==false){
+  if (fade_primer == 2&& input_processed==false){
     if (fade > 0  ) fade--; 
-    fadeprimer =0;
+    fade_primer =0;
   }
-  else if(fadeprimer == 1&& dirpressed==false){
-    if (fade < 7 && dirpressed==false ) fade++; 
-    fadeprimer =0;
+  else if(fade_primer == 1&& input_processed==false){
+    if (fade < 7 && input_processed==false ) fade++; 
+    fade_primer =0;
   }
 
   //code to roll the rainbow left and right
@@ -665,16 +632,17 @@ void loop() {
 
 
   //generate effects array based on mode
-  if(effectmode == 0){
-    auto_pump_primer = false;
+  if(effect_mode == 0){
+    auto_pump_mode=0;
+
     //buffer modes 3 and 4 are ugly with effect 0 so force switch it
     if (effectbuffer_mode == 3 || effectbuffer_mode == 4){
       effectbuffer_mode = 2;
     }
 
     //undo ugly output modes
-    if (outputmode == 2 || outputmode == 3 || outputmode == 6 || outputmode == 7){
-      outputmode = 0;
+    if (output_mode == 2 || output_mode == 3 || output_mode == 6 || output_mode == 7){
+      output_mode = 0;
     }
     averagespan =0;
 
@@ -719,7 +687,7 @@ void loop() {
         }
       }
       if (i<4){
-        brightness = map((spectrumValue[i+1] + spectrumValue[i]) >> 1,(spectrumValueMin[(i)] + spectrumValueMin[i+1]) >> 1 ,(spectrumValueMax[(i)] + spectrumValueMax[(i)+1]) >> 1,0,127); 
+        brightness = map((spectrumValue[i+1] + spectrumValue[i]) >> 1,(spectrumValueMin[i] + spectrumValueMin[i+1]) >> 1 ,(spectrumValueMax[i] + spectrumValueMax[i+1]) >> 1,0,127); 
         if (brightness > 63){
           instantspan =  map(brightness,64,127,0,SpanWheel(span));
           averagespan = averagespan + instantspan;
@@ -740,85 +708,128 @@ void loop() {
       }
     }
   }
-  else if(effectmode == 1){
-    auto_pump_primer = false;
+  else if(effect_mode == 1){
+    auto_pump_mode=0;
+
+    //buffer modes 3 and 4 are ugly with effect 0 so force switch it
+    if (effectbuffer_mode == 3 || effectbuffer_mode == 4){
+      effectbuffer_mode = 2;
+    }
+
+    //undo ugly output modes
+    if (output_mode == 2 || output_mode == 3 || output_mode == 6 || output_mode == 7){
+      output_mode = 0;
+    }
+    averagespan =0;
+
     brightness = map(spectrumValue[0]*.3,spectrumValueMin[0]*.3,spectrumValueMax[0]*.3,0,127); 
-    if (brightness > 64){
+    if (brightness > 63){
+      instantspan =  map(brightness,64,127,SpanWheel(span),0);
+    }
+    strip_buffer_2.setPixelColor(0,  Wheel(color));
+    if (brightness > 63){
       instantspan =  map(brightness,64,127,0,SpanWheel(span));
       averagespan = averagespan + instantspan;
     }
     strip_buffer_1.setPixelColor(0,  Wheel(color));
+
     brightness = map(spectrumValue[0]*.6,spectrumValueMin[0]*.6,spectrumValueMax[0]*.6,0,127); 
-    if (brightness > 64){
+    if (brightness > 63){
+      instantspan =  map(brightness,64,127,SpanWheel(span),0);
+    }
+    strip_buffer_2.setPixelColor(1,  Wheel(color));
+    if (brightness > 63){
       instantspan =  map(brightness,64,127,0,SpanWheel(span));
       averagespan = averagespan + instantspan;
     }
     strip_buffer_1.setPixelColor(1,  Wheel(color));
+
     for(int i=0; i<5; i++)   {
       brightness = map(spectrumValue[i],spectrumValueMin[i] ,spectrumValueMax[i],0,127); 
-      if (brightness > 64){
+      if (brightness > 63){
+        instantspan =  map(brightness,64,127,SpanWheel(span),0);
+      }
+      strip_buffer_2.setPixelColor(i*3+2,  Wheel(color));
+      if (brightness > 63){
         instantspan =  map(brightness,64,127,0,SpanWheel(span));
         averagespan = averagespan + instantspan;
       }
       strip_buffer_1.setPixelColor(i*3+2,  Wheel(color));
+
       brightness = map(spectrumValue[i+1] * .3 + spectrumValue[i] * .6,spectrumValueMin[i] * .6+ spectrumValueMin[i+1] * .3 ,spectrumValueMax[i] *.6 + spectrumValueMax[i+1] * .3,0,127); 
-      if (brightness > 64){
+      if (brightness > 63){
+        instantspan =  map(brightness,64,127,SpanWheel(span),0);
+      }
+      strip_buffer_2.setPixelColor(i*3+3,  Wheel(color));
+      if (brightness > 63){
         instantspan =  map(brightness,64,127,0,SpanWheel(span));
         averagespan = averagespan + instantspan;
       }
       strip_buffer_1.setPixelColor(i*3+3,  Wheel(color));
+
       brightness = map(spectrumValue[i+1] * .6 + spectrumValue[i] * .3,spectrumValueMin[i] * .3+ spectrumValueMin[i+1] * .6 ,spectrumValueMax[i] *.3 + spectrumValueMax[i+1] * .6,0,127); 
-      if (brightness > 64){
+      if (brightness > 63){
+        instantspan =  map(brightness,64,127,SpanWheel(span),0);
+      }
+      strip_buffer_2.setPixelColor(i*3+4,  Wheel(color));
+      if (brightness > 63){
         instantspan =  map(brightness,64,127,0,SpanWheel(span));
         averagespan = averagespan + instantspan;
       }
       strip_buffer_1.setPixelColor(i*3+4,  Wheel(color));
+
     }
     brightness = map(spectrumValue[5],spectrumValueMin[5] ,spectrumValueMax[5],0,127); 
-    if (brightness > 64){
+    if (brightness > 63){
+      instantspan =  map(brightness,64,127,SpanWheel(span),0);
+    }
+    strip_buffer_2.setPixelColor(17,  Wheel(color));
+    if (brightness > 63){
       instantspan =  map(brightness,64,127,0,SpanWheel(span));
       averagespan = averagespan + instantspan;
     }
     strip_buffer_1.setPixelColor(17,  Wheel(color));
+
     brightness = map(spectrumValue[5]*.6,spectrumValueMin[5]*.6,spectrumValueMax[5]*.6,0,127); 
-    if (brightness > 64){
+    if (brightness > 63){
+      instantspan =  map(brightness,64,127,SpanWheel(span),0);
+    }
+    strip_buffer_2.setPixelColor(18,  Wheel(color));
+    if (brightness > 63){
       instantspan =  map(brightness,64,127,0,SpanWheel(span));
       averagespan = averagespan + instantspan;
     }
     strip_buffer_1.setPixelColor(18,  Wheel(color));
+
     brightness = map(spectrumValue[5]*.3,spectrumValueMin[5]*.3,spectrumValueMax[5]*.3,0,127); 
-    if (brightness > 64){
+    if (brightness > 63){
+      instantspan =  map(brightness,64,127,SpanWheel(span),0);
+    }
+    strip_buffer_2.setPixelColor(19,  Wheel(color));
+    if (brightness > 63){
       instantspan =  map(brightness,64,127,0,SpanWheel(span));
       averagespan = averagespan + instantspan;
     }
     strip_buffer_1.setPixelColor(19,  Wheel(color));
   }
 
-  else if (effectmode == 2){
+  else if (effect_mode == 2){
 
     brightness = map(ytilt, 0, 254,0, 127);
-
-    instantspan =  map(brightness,0,127,0,SpanWheel(span));
-    for( i=0; i<strip_buffer_1.numPixels(); i++)     {
-      strip_buffer_1.setPixelColor(i,  Wheel(color));
-    }
 
     instantspan =  map(brightness,0,127,SpanWheel(span),0);
     for( i=0; i<strip_buffer_2.numPixels(); i++)     {
       strip_buffer_2.setPixelColor(i,  Wheel(color));
     }
 
-
-  }
-  else if (effectmode == 3){
-    brightness=127;
-    byte tempytilt = map(ytilt, 0, 254,0, 20);
-
-    instantspan =  map(tempytilt,0,20,0,SpanWheel(span));
-    for( i=0; i<tempytilt; i++)   {
+    instantspan =  map(brightness,0,127,0,SpanWheel(span));
+    for( i=0; i<strip_buffer_1.numPixels(); i++)     {
       strip_buffer_1.setPixelColor(i,  Wheel(color));
     }
-    for(int i=tempytilt; i<strip_buffer_1.numPixels(); i++) strip_buffer_1.setPixelColor(i, 0);
+  }
+  else if (effect_mode == 3){
+    brightness=127;
+    byte tempytilt = map(ytilt, 0, 254,0, 20);
 
     instantspan =  map(tempytilt,0,20,SpanWheel(span),0);
     for( i=0; i<tempytilt; i++)   {
@@ -826,21 +837,17 @@ void loop() {
     }
     for(int i=tempytilt; i<strip_buffer_2.numPixels(); i++) strip_buffer_2.setPixelColor(i, 0);
 
+    instantspan =  map(tempytilt,0,20,0,SpanWheel(span));
+    for( i=0; i<tempytilt; i++)   {
+      strip_buffer_1.setPixelColor(i,  Wheel(color));
+    }
+    for(int i=tempytilt; i<strip_buffer_1.numPixels(); i++) strip_buffer_1.setPixelColor(i, 0);
+
   }
-  else if (effectmode == 4){
+  else if (effect_mode == 4){
     brightness=127;
+
     byte tempytilt = map(ytilt, 0, 254,0, 40);
-    instantspan =  map(tempytilt,0,40,0,SpanWheel(span));
-    if (tempytilt < 21){
-      for( i=0; i<tempytilt; i++)  strip_buffer_1.setPixelColor(i, Wheel(color));
-      for(int i=tempytilt; i<strip_buffer_1.numPixels(); i++) strip_buffer_1.setPixelColor(i, 0);
-    }
-    else{
-      tempytilt = tempytilt -21;
-      for( i=20; i>tempytilt; i--)  strip_buffer_1.setPixelColor(i,Wheel(color));
-      for(int i=tempytilt; i>-1; i--) strip_buffer_1.setPixelColor(i, 0);
-    }
-    tempytilt = map(ytilt, 0, 254,0, 40);
     instantspan =  map(tempytilt,0,40,SpanWheel(span),0);
     if (tempytilt < 21){
       for( i=0; i<tempytilt; i++)  strip_buffer_2.setPixelColor(i, Wheel(color));
@@ -851,40 +858,54 @@ void loop() {
       for( i=20; i>tempytilt; i--)  strip_buffer_2.setPixelColor(i,Wheel(color));
       for(int i=tempytilt; i>-1; i--) strip_buffer_2.setPixelColor(i, 0);
     }
+
+    tempytilt = map(ytilt, 0, 254,0, 40);
+    instantspan =  map(tempytilt,0,40,0,SpanWheel(span));
+    if (tempytilt < 21){
+      for( i=0; i<tempytilt; i++)  strip_buffer_1.setPixelColor(i, Wheel(color));
+      for(int i=tempytilt; i<strip_buffer_1.numPixels(); i++) strip_buffer_1.setPixelColor(i, 0);
+    }
+    else{
+      tempytilt = tempytilt -21;
+      for( i=20; i>tempytilt; i--)  strip_buffer_1.setPixelColor(i,Wheel(color));
+      for(int i=tempytilt; i>-1; i--) strip_buffer_1.setPixelColor(i, 0);
+    }
+
   }
-  else if (effectmode ==5){
+  else if (effect_mode ==5){
     brightness=127;
     byte tempytilt = map(ytilt, 0,254,0, 21);
-
-    for( i=0; i<strip_buffer_1.numPixels(); i++) strip_buffer_1.setPixelColor(i, 0);
-    instantspan =  map(tempytilt,0,21,0,SpanWheel(span));
-    if (tempytilt < 21 and tempytilt >0)  strip_buffer_1.setPixelColor(tempytilt-1, Wheel(color));
 
     for( i=0; i<strip_buffer_2.numPixels(); i++) strip_buffer_2.setPixelColor(i, 0);
     instantspan =  map(tempytilt,0,21,SpanWheel(span),0);
     if (tempytilt < 21 and tempytilt >0)  strip_buffer_2.setPixelColor(tempytilt-1, Wheel(color));
+
+    for( i=0; i<strip_buffer_1.numPixels(); i++) strip_buffer_1.setPixelColor(i, 0);
+    instantspan =  map(tempytilt,0,21,0,SpanWheel(span));
+    if (tempytilt < 21 and tempytilt >0)  strip_buffer_1.setPixelColor(tempytilt-1, Wheel(color));
   }
-  else if (effectmode == 6){
+  else if (effect_mode == 6){
     brightness=127;
     for( i=0; i<strip_buffer_1.numPixels(); i++) strip_buffer_1.setPixelColor(i, Wheel(color));
     byte tempytilt = map(ytilt, 0, 254,0, 23);
-    instantspan =  map(tempytilt,0,21,0,SpanWheel(span));
-    if (tempytilt < 21 and tempytilt >0)  strip_buffer_1.setPixelColor(tempytilt-1, 0);
-    if (tempytilt < 22 and tempytilt >1)  strip_buffer_1.setPixelColor(tempytilt-2, 0);
-    if (tempytilt < 23 and tempytilt >2)  strip_buffer_1.setPixelColor(tempytilt-3, 0);
 
     instantspan =  map(tempytilt,0,21,SpanWheel(span),0);
     if (tempytilt < 21 and tempytilt >0)  strip_buffer_2.setPixelColor(tempytilt-1, 0);
     if (tempytilt < 22 and tempytilt >1)  strip_buffer_2.setPixelColor(tempytilt-2, 0);
     if (tempytilt < 23 and tempytilt >2)  strip_buffer_2.setPixelColor(tempytilt-3, 0);
 
+    instantspan =  map(tempytilt,0,21,0,SpanWheel(span));
+    if (tempytilt < 21 and tempytilt >0)  strip_buffer_1.setPixelColor(tempytilt-1, 0);
+    if (tempytilt < 22 and tempytilt >1)  strip_buffer_1.setPixelColor(tempytilt-2, 0);
+    if (tempytilt < 23 and tempytilt >2)  strip_buffer_1.setPixelColor(tempytilt-3, 0);
+
   }
-  else if (effectmode == 7){
+  else if (effect_mode == 7){
 
-    int startingpixel=0;
-    int endingpixel=0;
+    byte startingpixel=0;
+    byte endingpixel=0;
 
-    switch (ratchet){
+    switch (active_segment){
     case 1:
       startingpixel=0;
       endingpixel=14;
@@ -909,15 +930,6 @@ void loop() {
 
     brightness = map(ytilt, 0, 254,0, 127);
 
-    instantspan =  map(brightness,0,127,0,SpanWheel(span));
-    for( i=0; i<strip_buffer_1.numPixels(); i++)     {
-      if( i < endingpixel && i >= startingpixel){
-        strip_buffer_1.setPixelColor(i,  Wheel(color));
-      }
-      else{
-        strip_buffer_1.setPixelColor(i,  0);
-      }
-    }
 
     instantspan =  map(brightness,0,127,SpanWheel(span),0);
     for( i=0; i<strip_buffer_2.numPixels(); i++)     {
@@ -929,120 +941,124 @@ void loop() {
       }
     }
 
-
-
+    instantspan =  map(brightness,0,127,0,SpanWheel(span));
+    for( i=0; i<strip_buffer_1.numPixels(); i++)     {
+      if( i < endingpixel && i >= startingpixel){
+        strip_buffer_1.setPixelColor(i,  Wheel(color));
+      }
+      else{
+        strip_buffer_1.setPixelColor(i,  0);
+      }
+    }
 
   } 
-  else if (effectmode == 8){
+  else if (effect_mode == 8){
+    auto_pump_mode=0;
 
-    auto_pump_primer=false;
     if (effectbuffer_mode != 0){
       effectbuffer_mode = 0;
     }
 
-    auto_pump_primer = false;
     brightness=127;
     for( i=0; i<strip_buffer_1.numPixels(); i++)     {
       instantspan =  map(i,0,19,0,SpanWheel(span));
       strip_buffer_1.setPixelColor(i,  Wheel(color));
     }
-
   }
 
-  if (fade == 7){
-    auto_pump_primer=false;
-  }
-
-  if (overlayprimer!=0){
+  if (overlay_primer!=0){
     //fadeout
-    if(overlayprimer == 1){
+    if(overlay_primer == 1){
       if(nunchuk.accelX > 1000||nunchuk.accelY > 1000 ||nunchuk.accelZ > 1000){
-        overlaytimer =millis();
-        overlaytime=500;
+        overlay_starting_time =millis();
+        overlay_duration=500;
         fade = 7;
-        //effectmode = 8;  leave the mode alone for fading back into the same mode
-        overlaystatus=overlayprimer;
+        //effect_mode = 8;  leave the mode alone for fading back into the same mode
+        overlay_mode=overlay_primer;
       }
     }//fadeduring
-    else if(overlayprimer == 2){
-      overlaytimer =millis();
-      overlaytime=100;
-      overlaystatus=overlayprimer;
+    else if(overlay_primer == 2){
+      overlay_starting_time =millis();
+      overlay_duration=100;
+      overlay_mode=overlay_primer;
     }//fade to idle
-    else if(overlayprimer == 3){
+    else if(overlay_primer == 3){
       if(nunchuk.accelX > 1000||nunchuk.accelY > 1000 ||nunchuk.accelZ > 1000){
-        overlaytimer =millis();
-        overlaytime=500;
-        effectmode=8;
+        overlay_starting_time =millis();
+        overlay_duration=500;
+        effect_mode=8;
         effectbuffer_mode=0;
         fade=0;
-        overlaystatus=overlayprimer;
+        overlay_mode=overlay_primer;
       }
     }//fade to on
-    else if(overlayprimer == 4){
+    else if(overlay_primer == 4){
       if(nunchuk.accelX > 1000||nunchuk.accelY > 1000 ||nunchuk.accelZ > 1000){
-        overlaytimer =millis();
-        overlaytime=500;
+        overlay_starting_time =millis();
+        overlay_duration=500;
         fade = 0;
-        effectmode=9;//check later
-        overlaystatus=overlayprimer;
+        effect_mode=9;//check later
+        overlay_mode=overlay_primer;
       } 
-      else if(overlayprimer ==5){ //camera primer
-        overlaytimer =millis();
-        overlaytime=100;
-        overlaystatus=overlayprimer;
+      else if(overlay_primer ==5){ //camera primer
+        overlay_starting_time =millis();
+        overlay_duration=100;
+        overlay_mode=overlay_primer;
       }
     }
   }
 
-  if(overlaystatus!=0){
+  if(overlay_mode!=0){
     //actually overlay the pixel array
     unsigned long int currenttime = millis();
-    if(currenttime<overlaytimer+overlaytime){
+    if(currenttime<overlay_starting_time+overlay_duration){
       //during overlay
       byte tempfade = fade;
       byte tempbrightness = brightness;
-      fade=0;
 
       //overlay fade equation, change later to make more logorithmic
-      overlaybrightness=map(currenttime,overlaytimer,overlaytimer+overlaytime,96,0);
+      overlay_brightness=map(currenttime,overlay_starting_time,overlay_starting_time+overlay_duration,96,0);
+      fade=0;
 
-      brightness=overlaybrightness;
-      instantspan=0;
+      //dont flood the array when fading out
+      if(overlay_mode!=1){
+        brightness=overlay_brightness;
+        instantspan=0;
 
-      unsigned long  tempcolor =Wheel(color);
-      byte r = (tempcolor>> 8) ;
-      byte g  = (tempcolor>> 16);
-      byte b = (tempcolor>>0);
-      instantspan=SpanWheel(span);
-      tempcolor =Wheel(color);
-      r =r| (tempcolor>> 8);
-      g  =g| (tempcolor>> 16);
-      b = b|(tempcolor>>0) ;
-      for( i=0; i<strip_buffer_1.numPixels(); i++)     {
-        strip_buffer_1.pixels[i*3+1] = strip_buffer_1.pixels[i*3+1] | r ;
-        strip_buffer_2.pixels[i*3+1] = strip_buffer_2.pixels[i*3+1] | r ;
-        strip_buffer_1.pixels[i*3]= strip_buffer_1.pixels[i*3] | g;
-        strip_buffer_2.pixels[i*3]= strip_buffer_2.pixels[i*3] | g;
-        strip_buffer_1.pixels[i*3+2] = strip_buffer_1.pixels[i*3+2] |b  ;
-        strip_buffer_2.pixels[i*3+2] = strip_buffer_2.pixels[i*3+2] |b  ;
+        unsigned long  tempcolor =Wheel(color);
+        byte r = (tempcolor>> 8) ;
+        byte g  = (tempcolor>> 16);
+        byte b = (tempcolor>>0);
+        instantspan=SpanWheel(span);
+        tempcolor =Wheel(color);
+        r =r| (tempcolor>> 8);
+        g  =g| (tempcolor>> 16);
+        b = b|(tempcolor>>0) ;
+        for( i=0; i<strip_buffer_1.numPixels(); i++)     {
+          strip_buffer_1.pixels[i*3+1] = strip_buffer_1.pixels[i*3+1] | r ;
+          strip_buffer_2.pixels[i*3+1] = strip_buffer_2.pixels[i*3+1] | r ;
+          strip_buffer_1.pixels[i*3]= strip_buffer_1.pixels[i*3] | g;
+          strip_buffer_2.pixels[i*3]= strip_buffer_2.pixels[i*3] | g;
+          strip_buffer_1.pixels[i*3+2] = strip_buffer_1.pixels[i*3+2] |b  ;
+          strip_buffer_2.pixels[i*3+2] = strip_buffer_2.pixels[i*3+2] |b  ;
+        }
       }
       fade=tempfade;
       brightness=tempbrightness;
     }
     else{
-      overlaystatus=0;
+      overlay_mode=0;
     }
   }
 
   //output to the strips
 
-  if (effectmode == 7){
+  if (effect_mode == 7){
     output(B00000000);
   }
   else
   {
-    switch (outputmode){
+    switch (output_mode){
     case 0: //down
       output(B00000000);
       break;
@@ -1078,7 +1094,7 @@ void loop() {
 int gesture(int inputvalue, int itemrange){
   //inputvalue rotate code
   int currentvalue;
-  if (effectmode == 0 || effectmode ==1|| effectmode ==8){
+  if (effect_mode == 0 || effect_mode ==1|| effect_mode ==8){
     currentvalue = xtilt;
   }
   else{
@@ -1154,7 +1170,7 @@ int gesture(int inputvalue, int itemrange){
 
 void output(byte w){
 
-  if ((effectmode == 7 && ratchet > 2) || effectmode != 7){
+  if ((effect_mode == 7 && active_segment > 2) || effect_mode != 7){
     digitalWrite(strip_1,LOW);
     if (bitRead(w,0) == 1){
       if (effectbuffer_mode == 1 || effectbuffer_mode == 3){
@@ -1165,7 +1181,7 @@ void output(byte w){
       }
     }
     else{
-      if (effectmode == 0){
+      if (effect_mode == 0){
         if (effectbuffer_mode == 1 || effectbuffer_mode == 3){
           strip_buffer_2.showCompileTimeFold<clockPin, dataPin>();
         }
@@ -1194,7 +1210,7 @@ void output(byte w){
       }
     }
     else{
-      if (effectmode == 0){
+      if (effect_mode == 0){
         if (effectbuffer_mode == 1 || effectbuffer_mode == 4){
           strip_buffer_2.showCompileTimeFold<clockPin, dataPin>();
         }
@@ -1224,7 +1240,7 @@ void output(byte w){
 
   }
 
-  if ((effectmode == 7 && ratchet < 3) || effectmode != 7){
+  if ((effect_mode == 7 && active_segment < 3) || effect_mode != 7){
     digitalWrite(strip_2,LOW);
     if (bitRead(w,1)== 1){
       if (effectbuffer_mode == 2 || effectbuffer_mode == 4){
@@ -1235,7 +1251,7 @@ void output(byte w){
       }
     }
     else{
-      if (effectmode == 0){
+      if (effect_mode == 0){
         if (effectbuffer_mode == 2 || effectbuffer_mode == 4){
           strip_buffer_2.showCompileTimeFold<clockPin, dataPin>();
         }
@@ -1266,7 +1282,7 @@ void output(byte w){
       }
     }
     else{
-      if (effectmode == 0){
+      if (effect_mode == 0){
         if (effectbuffer_mode == 2 || effectbuffer_mode == 3){
           strip_buffer_2.showCompileTimeFold<clockPin, dataPin>();
         }
@@ -1356,10 +1372,23 @@ uint32_t Wheel(uint16_t WheelPos){
     break; 
   }
 
-  r = r*brightness/127;
-  g = g*brightness/127;
-  b = b*brightness/127;
-  return(strip_buffer_1.Color( r >> fade ,g >> fade,b >> fade));
+  //normal color calculations
+  if(overlay_mode!=1){
+    r = r*brightness/127;
+    g = g*brightness/127;
+    b = b*brightness/127;
+    r = r >> fade;
+    g = g >> fade;
+    b = b >> fade;
+  }
+  else{
+    //pretty fadeout for overlay mode 1
+    r = r*min(overlay_brightness,brightness)/127;
+    g = g*min(overlay_brightness,brightness)/127;
+    b = b*min(overlay_brightness,brightness)/127;
+
+  }
+  return(strip_buffer_1.Color( r,g ,b ));
 }
 
 
@@ -1393,15 +1422,15 @@ void readserial(){
         }
       case TRIPLE_TAP:
         {
-          switch(effectmode){
+          switch(effect_mode){
           case 0:
-            effectmode = 8;
+            effect_mode = 8;
             break;
           case 8:
-            effectmode = 0;
+            effect_mode = 0;
             break;
           default:
-            effectmode = 0;
+            effect_mode = 0;
           }
           break;
         }
@@ -1412,7 +1441,7 @@ void readserial(){
             last_set_color=tempcolor-386;
           }
           else{
-            overlayprimer = 5; //pulse 
+            overlay_primer = 5; //pulse 
             color = tempcolor;
             latch_data = tempcolor;//copy into latch buffer incase a new color comes in while gestureing
             last_set_color = tempcolor;
@@ -1450,8 +1479,8 @@ void readserial(){
           last_set_fade=serial1buffer[1];
           //prime overlay on pacman open
           if (fade == 0){
-            overlayprimer = 3;
-            effectmode=8;
+            overlay_primer = 3;
+            effect_mode=8;
           }
           Serial1.write(SET_FADE_BRIGHTNESS);
           Serial1.write(fade+8);
@@ -1502,7 +1531,7 @@ void readserial(){
           latch_data = temp;//copy into latch buffer incase a new color comes in while gestureing
           //turn on to static mode full bright when disabled
           if (fade == 7){
-            effectmode=8;
+            effect_mode=8;
             fade = 0;
           }
           ring_timer=millis();
@@ -1526,7 +1555,7 @@ void readserial(){
           frame_mode = 1;
           //turn on to static mode full bright when disabled
           if (fade == 7){
-            effectmode=8;
+            effect_mode=8;
           }
           fade = 0;
           break;
@@ -1536,7 +1565,7 @@ void readserial(){
           Serial2.println(color); //COLOR1
           Serial2.println(SpanWheel(span));//COLOR2
           Serial2.println(fps_last); //FPS
-          Serial2.println(auto_pump_timer);  //BPM
+          Serial2.println(bpm_period);  //BPM
           Serial2.println(jacket_voltage); //voltage
           Serial2.println(disc_voltage); //voltage
           Serial2.println(millis()); //uptime
@@ -1593,19 +1622,19 @@ void nunchuckparse(){
   }
 
   //dpad noise removal / delay code
-  if (dpadtemp == 0x00 || dpadtemp !=dpadlast){
+  if (dpadtemp == 0x00 || dpadtemp !=dpad_previous){
     dpadTimer = millis();
     dpad = 0x00;
   }
   if (millis() - dpadTimer > BUTTONDELAY ){
     dpad = dpadtemp;
   }
-  dpadlast = dpadtemp;
+  dpad_previous = dpadtemp;
 
   //nunchuck unplugged code
   if(nunchuk.pluggedin == false){
-    effectmode = 0;
-    outputmode = 6;  
+    effect_mode = 0;
+    output_mode = 6;  
     dpad = 0x00;
   }
 
@@ -1665,8 +1694,7 @@ void nunchuckparse(){
 
   if (auto_pump == true){
 
-    ytilt = map((millis()-fist_pump_timer )% (auto_pump_timer >> auto_pump_multiplier), 0, (auto_pump_timer >> auto_pump_multiplier), 0,254);
-
+    ytilt = map((millis()-bpm_starting_time )% (bpm_period >> auto_pump_multiplier), 0, (bpm_period >> auto_pump_multiplier), 0,254);
     ytilt = ytilt * 4;
     if( ytilt < 256){
       ytilt = 0;
@@ -1708,7 +1736,7 @@ void sendserial(){
 
   }
 
-  if(overlaystatus == 0 || overlaystatus == 4){
+  if(overlay_mode == 0 || overlay_mode == 4){
     //set fade before brightness
     if (last_set_fade != fade || last_set_brightness != 127){
       Serial1.write(SET_FADE_BRIGHTNESS);
@@ -1717,15 +1745,15 @@ void sendserial(){
     }
 
   }
-  else if(overlaystatus == 1){
-    if (last_set_brightness != overlaybrightness || last_set_fade != 0){
+  else if(overlay_mode == 1){
+    if (last_set_brightness != overlay_brightness || last_set_fade != 0){
       Serial1.write(SET_FADE_BRIGHTNESS);
       Serial1.write(0); //data small enough (0-7)it wont collide
-      Serial1.write(overlaybrightness+127); //encode data to avoid collisions 0-127 moved to 127-254
+      Serial1.write(overlay_brightness+127); //encode data to avoid collisions 0-127 moved to 127-254
     }
   }  
-  else if(overlaystatus == 3){
-    int tempbrightness = max(overlaybrightness ,127 >> fade);
+  else if(overlay_mode == 3){
+    int tempbrightness = max(overlay_brightness ,127 >> fade);
     if (last_set_brightness != tempbrightness || last_set_fade != 0){
       Serial1.write(SET_FADE_BRIGHTNESS);
       Serial1.write(0); //data small enough (0-7)it wont collide
@@ -1742,6 +1770,8 @@ void sendserial(){
 }
 
 void updatedisplay(){
+  //its important that motion effects write buffer 1 last so that instantspan is left set for the helmet to follow
+  //if buffer2 is written last the helmet will be inverted (since it will be following buffer 2)
 
   //save brightness values for later and set to max val
   byte tempfade = fade;
@@ -1760,7 +1790,7 @@ void updatedisplay(){
 
   //exaggerate the color change by dividing by less segments than we have, but we have to
   //check the value versus min and max to not go over
-  if (effectmode ==0){
+  if (effect_mode ==0 || effect_mode ==1){
     if (SpanWheel(span) < 0){
       instantspan = max(averagespan / 4,SpanWheel(span));
     }
@@ -1772,7 +1802,7 @@ void updatedisplay(){
   //if we are not in a dpad mode
   //display pure color or span while changing it
   //so I can see what I am doing
-  if(dpad == 0x00 && overlayprimer == 0){
+  if(overlay_primer == 0){
     if ( zButtonDelayed == 1 && cButtonDelayed == 0){
       instantspan=SpanWheel(span);
       fade=0;
@@ -1782,10 +1812,10 @@ void updatedisplay(){
       fade=0;
     }
   }
-  if (overlaystatus ==1 ){
 
+  if (overlay_mode == 1 ){
     fade=0;
-    brightness = overlaybrightness;
+    brightness = overlay_brightness;
   }
 
 
@@ -1882,7 +1912,7 @@ void updatedisplay(){
   switch (frame_mode){
   case 5:
   case 0:  //EQ mode
-    Serial3.print(effectmode);
+    Serial3.print(effect_mode);
     Serial3.print("  ");
     //update first line of LCD screen
     Serial3.print("R");
@@ -1907,7 +1937,7 @@ void updatedisplay(){
       Serial3.print ("0");
     Serial3.print(b,10);
     Serial3.print(" ");
-    Serial3.print(outputmode);
+    Serial3.print(output_mode);
     Serial3.print(tempfade);
     //update 2nd  line of LCD screen R values
     for (byte i=0; i<20; i++ ) {
@@ -1983,11 +2013,11 @@ void updatedisplay(){
       Serial3.print(" FPS: ");
       Serial3.print(temp);
       Serial3.print("  BPM: ");
-      if(auto_pump_timer==1000){
+      if(bpm_period==1000){
         Serial3.print(" --");
       }
       else{
-        dtostrf(60000/auto_pump_timer,3,0,temp); 
+        dtostrf(60000/bpm_period,3,0,temp); 
         Serial3.print(temp);
       }
       Serial3.print(" ");
@@ -2031,7 +2061,7 @@ void updatedisplay(){
     //LED2 Z button status
     if (nunchuk.zButton){
       //if overlay is primed, blink led2
-      if (overlayprimer != 0){
+      if (overlay_primer != 0 ||(auto_pump_mode != 0 && DPAD_DOWN)){
         if((millis()  >> 8) & 0x01 ){
           bitSet(gpio,1);
         }
@@ -2058,11 +2088,11 @@ void updatedisplay(){
   //LED4 - motion status
 
   //idle mode
-  if ( effectmode == 8){ 
+  if ( effect_mode == 8){ 
     //do nothing
   }
   //EQ modes
-  else if ( effectmode == 0 || effectmode == 1){  
+  else if ( effect_mode == 0 || effect_mode == 1){  
     //if a button is pressed...
     if (nunchuk.cButton || nunchuk.zButton ){
       //light led 4 based on gesture status
@@ -2081,85 +2111,115 @@ void updatedisplay(){
   else {  
     //change the pump status based on tilt
     if (ytilt == 0){
-      //reset fist pump timer on status change
-      if(pumped== true){
-        //calculate period for auto pumping
-        beats++;
-        //only switch in or out of auto pump on a cycle end
-        if(auto_pump_primer == true){
-          auto_pump = true;
+      //run oncon peak of pump
+      if(beat_completed== true){
 
+        switch(auto_pump_mode){
+        case 0:
+          auto_pump = false;
+          break;
+        case 1:
+          auto_pump = true;
+          auto_pump_multiplier = 0;
+          break;
+        case 2:
+          auto_pump_multiplier = 1;
+          break;
+        case 3:
+          auto_pump_multiplier = 2;
+          break;
+        case 4:
+          auto_pump_multiplier = 3;
+          break;
+        default:
+          auto_pump_multiplier = 3;
+          auto_pump_mode = 4;
+        }
+
+        if(auto_pump == true){
+          //only stay in turbo modes while holding button
+          if(auto_pump_multiplier > 0 && (dpad & 0x0F) == 0x00){
+            auto_pump_mode=1;
+            auto_pump_multiplier = 0;
+          }
+          if (fade == 7){
+            auto_pump_mode=0;
+            auto_pump = false;
+          }
+          //avoid time travel into the future when entering auto mode
+          //if the manual entry beat comes in a few milliseconds late when transitioning it would look ugly
+          if (bpm_starting_time+bpm_period > millis()){
+            bpm_starting_time=millis();
+          }
+          else{
+            bpm_starting_time=bpm_starting_time+bpm_period;
+          }
         }
         else{
-          auto_pump = false;
-        }
-        if(auto_pump == false){
-          Serial.print((millis()-fist_pump_timer));
-          Serial.print(" ");
-          if (auto_pump_timer>1000) {
-            auto_pump_timer = 1000;
+          //60 is minimum bpm
+          if (bpm_period>1000) {
+            bpm_period = 1000;
           }
-          auto_pump_timer = auto_pump_timer * .5 + (millis()-fist_pump_timer) *.5;
-          Serial.println(auto_pump_timer);
-          //auto_pump_timer_offset = millis();
+          //filter the bpm
+          bpm_period = bpm_period * .5 + (millis()-bpm_starting_time) *.5;
+          bpm_starting_time= millis(); 
         }
-        //  auto_pump_timer_start= millis();
-        fist_pump_timer= millis();
-        //ratchet code
-        if(effectmode == 7){
-          switch (outputmode){
+
+        //ratchet active_segment code
+        if(effect_mode == 7){
+          switch (output_mode){
           case 0: //down
-            ratchet++;
-            if (ratchet >5){
-              ratchet=1;
+            active_segment++;
+            if (active_segment >5){
+              active_segment=1;
             }
             break;
           case 1: //down left
-            ratchet--;
-            if (ratchet <1){
-              ratchet=2;
-              outputmode=7;
+            active_segment--;
+            if (active_segment <1){
+              active_segment=2;
+              output_mode=7;
             }
             break; 
           case 2:  //left
-            ratchet--;
-            if (ratchet <1){
-              ratchet=2;
-              outputmode=6;
+            active_segment--;
+            if (active_segment <1){
+              active_segment=2;
+              output_mode=6;
             }
             break;
           case 3: //up left
-            ratchet--;
-            if (ratchet <3){
-              ratchet=4;
-              outputmode=5;
+            active_segment--;
+            if (active_segment <3){
+              active_segment=4;
+              output_mode=5;
             }
             break;
           case 4: //up 
-            ratchet--;
-            if (ratchet <1){
-              ratchet=5;
+            active_segment--;
+            if (active_segment <1){
+              active_segment=5;
             }
             break;
           case 5: //up right
-            ratchet++;
-            if (ratchet >5){
-              ratchet=4;
-              outputmode=3;
+            active_segment++;
+            if (active_segment >5){
+              active_segment=4;
+              output_mode=3;
             }
             break;
           case 6: //right
-            ratchet++;
-            if (ratchet >5){
-              ratchet=4;
-              outputmode=2;
+            active_segment++;
+            if (active_segment >5){
+              active_segment=4;
+              output_mode=2;
             }
             break;
           case 7: //down right
-            ratchet++;
-            if (ratchet >2){
-              ratchet=1;
-              outputmode=1;
+            active_segment++;
+            if (active_segment >2){
+              active_segment=1;
+              output_mode=1;
             }
             break;
           }
@@ -2178,15 +2238,18 @@ void updatedisplay(){
           effectbuffer_mode =3;
         }
       }
-      pumped=false;
+      beat_completed=false;
     }
     else if (ytilt == 254 ){
-      pumped=true;
-
+      //run once on peak of pump
+      if(beat_completed== false){
+        beats++;
+      }
+      beat_completed=true;
     }
 
     //if timer has ran out, set off alarm
-    if (millis() - fist_pump_timer > fistpump ){
+    if (millis() - bpm_starting_time > fistpump ){
       //fist pumping alarm
       if(((millis() >> 5) & 0x01 )&& fade !=7){
         bitSet(gpio,3);
@@ -2194,7 +2257,7 @@ void updatedisplay(){
     }
     //otherwise just display the current fist pumping status
     else{
-      if ( pumped ){
+      if ( beat_completed ){
         bitSet(gpio,3);
       }
     }
@@ -2215,6 +2278,42 @@ void updatedisplay(){
   fade = tempfade;
   brightness = tempbrightness;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

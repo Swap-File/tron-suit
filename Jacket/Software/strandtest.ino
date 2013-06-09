@@ -109,8 +109,8 @@ byte effectbuffer_mode = 0; //choose which buffer combination to display
 byte active_segment = 1;  //for mode #7, keeps track of which of 5 segments to light
 byte effect_mode = 0;
 byte output_mode = 0;
-byte suit_brightness=0;
-byte disc_brightness=0;
+byte suit_brightness=127;
+byte disc_brightness=127;
 byte fade=0;
 int color=0;  //the chosen color used for effects  0-383 is mapped to the color wheel  384 is white 385 is rainbow 512 is full white
 byte fade_primer=0;
@@ -629,7 +629,6 @@ void loop() {
     spectrumValue[i]= constrain(spectrumValue[i],spectrumValueMin[i],spectrumValueMax[i]);
   } 
 
-
   //generate effects array based on mode
   if(effect_mode == 0){
     auto_pump_mode=0;
@@ -813,7 +812,6 @@ void loop() {
   }
 
   else if (effect_mode == 2){
-
     suit_brightness = map(ytilt, 0, 254,0, 127);
 
     instantspan =  map(suit_brightness,0,127,SpanWheel(span),0);
@@ -900,7 +898,6 @@ void loop() {
 
   }
   else if (effect_mode == 7){
-
     byte startingpixel=0;
     byte endingpixel=0;
 
@@ -929,7 +926,6 @@ void loop() {
 
     suit_brightness = map(ytilt, 0, 254,0, 127);
 
-
     instantspan =  map(suit_brightness,0,127,SpanWheel(span),0);
     for( i=0; i<strip_buffer_2.numPixels(); i++)     {
       if( i < endingpixel && i >= startingpixel){
@@ -949,7 +945,6 @@ void loop() {
         strip_buffer_1.setPixelColor(i,  0);
       }
     }
-
   } 
   else if (effect_mode == 8){
     auto_pump_mode=0;
@@ -997,15 +992,9 @@ void loop() {
         effect_mode=9;//put into a nonexitent mode to unlock from mode 8
         overlay_mode=overlay_primer;
       } 
-      else if(overlay_primer ==5){ //camera primer
-        overlay_starting_time =millis();
-        overlay_duration=100;
-        overlay_mode=overlay_primer;
-      }
     }
   }
 
-  disc_brightness=127;
   if(overlay_mode!=0){ //code to run during overlays
     //actually overlay the pixel array
     unsigned long int currenttime = millis();
@@ -1013,54 +1002,52 @@ void loop() {
       //during overlay
 
       //overlay fade equation, change later to make more logorithmic
-      byte overlay_brightness=map(currenttime,overlay_starting_time,overlay_starting_time+overlay_duration,96,0);
+      byte overlay_brightness=map(currenttime,overlay_starting_time,overlay_starting_time+overlay_duration,127,0);
 
-      if(overlay_mode!=4 && overlay_mode!=3){
+      if(overlay_mode==1){//dont flood the array when fading out
         disc_brightness=overlay_brightness;
       }
-      //dont flood the array when fading out
-      if(overlay_mode!=1){
-        byte tempfade = fade;
-        byte tempbrightness = suit_brightness;
+      else{ //fadeout and pulse overlay
+        suit_brightness=overlay_brightness; //this gets overwritten next cycle
+
+        //get color 1
         fade=0;
-
-        suit_brightness=overlay_brightness;
         instantspan=0;
-
         unsigned long  tempcolor =Wheel(color);
-        byte r = (tempcolor>> 8) ;
-        byte g  = (tempcolor>> 16);
-        byte b = (tempcolor>>0);
+        byte r = (tempcolor >> 8) ;
+        byte g  = (tempcolor >> 16);
+        byte b = (tempcolor >>0);
+
+        //get color 2 and combine
         instantspan=SpanWheel(span);
         tempcolor =Wheel(color);
-        r =r| (tempcolor>> 8);
-        g  =g| (tempcolor>> 16);
-        b = b|(tempcolor>>0) ;
-        for( i=0; i<strip_buffer_1.numPixels(); i++)     {
-          strip_buffer_1.pixels[i*3+1] = strip_buffer_1.pixels[i*3+1] | r ;
-          strip_buffer_2.pixels[i*3+1] = strip_buffer_2.pixels[i*3+1] | r ;
+        r = r | (tempcolor >> 8);
+        g = g | (tempcolor >> 16);
+        b = b |(tempcolor >>0) ;
+        for( i=0; i<strip_buffer_1.numPixels(); i++){
+          strip_buffer_1.pixels[i*3+1] = strip_buffer_1.pixels[i*3+1] | r;
+          strip_buffer_2.pixels[i*3+1] = strip_buffer_2.pixels[i*3+1] | r;
           strip_buffer_1.pixels[i*3]= strip_buffer_1.pixels[i*3] | g;
           strip_buffer_2.pixels[i*3]= strip_buffer_2.pixels[i*3] | g;
-          strip_buffer_1.pixels[i*3+2] = strip_buffer_1.pixels[i*3+2] |b  ;
-          strip_buffer_2.pixels[i*3+2] = strip_buffer_2.pixels[i*3+2] |b  ;
+          strip_buffer_1.pixels[i*3+2] = strip_buffer_1.pixels[i*3+2] | b;
+          strip_buffer_2.pixels[i*3+2] = strip_buffer_2.pixels[i*3+2] | b;
         }
-        fade=tempfade;
-        suit_brightness=tempbrightness;
       }
-
     }
     else{ //code to run when exiting overlays
-      if(overlay_mode==1){
+      if(overlay_mode==1){  //on fadeout clamp to off
         fade=7;
       }
       overlay_mode=0;
+      disc_brightness=127;
     }
+
   }
-
-
-  sendserial();     //send serial data
+ 
+  //output to disc
+  sendserial();    
+  
   //output to the strips
-
   if (effect_mode == 7){
     output(B00000000);
   }
@@ -1434,7 +1421,6 @@ void readserial(){
             last_set_color=tempcolor-386;
           }
           else{
-            overlay_primer = 5; //pulse 
             color = tempcolor;
             latch_data = tempcolor;//copy into latch buffer incase a new color comes in while gestureing
             last_set_color = tempcolor;
@@ -1470,11 +1456,6 @@ void readserial(){
         else{
           fade = serial1buffer[1];
           last_set_fade=serial1buffer[1];
-          //prime overlay on pacman open
-          if (fade == 0){
-            overlay_primer = 3;
-            effect_mode=8;
-          }
           Serial1.write(SET_FADE_BRIGHTNESS);
           Serial1.write(fade+8);
           Serial1.write(suit_brightness+127);//notused padding
@@ -2234,6 +2215,8 @@ void updatedisplay(){
   fade = tempfade;
   suit_brightness = tempbrightness;
 }
+
+
 
 
 

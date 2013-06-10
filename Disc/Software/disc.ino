@@ -87,7 +87,7 @@ int angle=0;
 int disc_voltage=1024;
 unsigned long lastupdate=0;
 unsigned long batteryupdate=0;
-
+unsigned long idle_timer=0;
 int previous_x_absolute = 0;
 int previous_y_absolute = 0;
 int previous_z_absolute = 0;
@@ -109,7 +109,7 @@ unsigned long swipetime=0;
 int z_latch_color = 0;  //color at time of first latch
 int z_latch_angle = -1; //angle of first latch -1 means hasnt occured yet
 unsigned long z_latch_time_cooldown = 0; //time of first latch for input debounce
-byte z_latch = 0; //keeps track of latching status
+byte z_latch = 1; //keeps track of latching status
 byte rotation_status  =0;  
 int z_latch_span;
 unsigned long tap_time = 0; //time of first latch for input debounce
@@ -125,8 +125,6 @@ void TSC_Init()
   pinMode(S2, OUTPUT);
   pinMode(S3, OUTPUT);
   pinMode(OUT, INPUT);
-
-
 }
 
 // Select the filter color
@@ -177,7 +175,6 @@ void TSC_WB(int Level0, int Level1)
   g_count = 0;
   g_flag ++;
   TSC_FilterColor(Level0, Level1);
-
 }
 
 void setup()
@@ -241,17 +238,18 @@ void setup()
 
   //populate starting values
   adxl.readAccel(&previous_x_absolute, &previous_y_absolute, &previous_z_absolute); 
-
 } 
-
 
 void loop()
 {
 
+  if (millis()- idle_timer > 10000){
+    z_latch = 1;
+    currentmode=0;
+  }
+
   //battery level check
   //650 = 9.45v
-
-
   disc_voltage = disc_voltage * .97 + analogRead(0) * .03;
 
   if (disc_voltage < 650){
@@ -271,7 +269,6 @@ void loop()
     sendbattery();
   }
 
-
   byte intsource = adxl.getInterruptSource();
   if ((intsource >> ADXL345_INT_DOUBLE_TAP_BIT) & 1)  {
     if (millis() - tap_time < 200 ){
@@ -286,7 +283,7 @@ void loop()
       fade=0;
       span=0;
       instantspan=0;
-      z_latch = 0;
+      z_latch = 1;
 
       //send a heartbeat before animating
       sendbattery();
@@ -313,10 +310,10 @@ void loop()
       digitalWrite(LIGHTS,LOW );
       if (g_array[0]+g_array[1]+g_array[2] <20){
         fade=7;
+        color=192;
       }
       else{
         color = readcolor();
-
       }
       //start at top of disc and work around
       for(int i=strip.numPixels()+1; i>-1; i--) {
@@ -325,7 +322,7 @@ void loop()
         delay(50);
       }
 
-      z_latch = 0;
+      z_latch = 1;
       currentmode=0;
     }
   }
@@ -335,8 +332,6 @@ void loop()
     // currentmode=0;
     // z_latch = 1;
   }
-
-
 
   //normal serial read
   while(Serial.available()){
@@ -475,12 +470,10 @@ void loop()
   if ((z_latch !=3 && z_latch !=4 )) {
     if  (xy_angle == previous_xy_angle) { //angle must go in the same direction
       if (xy_filtered_magnitude > previous_xy_filtered_magnitude && xy_filtered_magnitude > 150){  //filtered magnitude must be strong and rising 
-
-
+        idle_timer=millis();
         angle = xy_filtered_angle;
         if (fade < 7){   //swipe
-
-          magnitude =map(xy_filtered_magnitude,150,225,1,4);
+          magnitude = map(xy_filtered_magnitude,150,225,1,4);
           currentmode  = 1;  //normal swipe
         }
         else{ //pacman open
@@ -502,14 +495,13 @@ void loop()
 
     //enter mode with force of 40 from swipe mode, or 10 once in the mode
     if ( (xy_filtered_magnitude > 10 && currentmode == 2 ) || (xy_filtered_magnitude > 100 &&  currentmode ==1 && (swipetime + 100 < millis()) ) ){ 
-
       //spin mode
       currentmode  = 2;
       angle = xy_filtered_angle;
       magnitude =map(xy_filtered_magnitude,20,100,1,3);
+      idle_timer=millis();
     }
   }
-
 
   //detect high z motion
   if(abs(z_filtered) > 100) {  //enter mode 0 
@@ -522,7 +514,7 @@ void loop()
       z_latch_time_cooldown = millis();
       z_latch_angle = xy_angle;
       z_latch = 2;
-
+      idle_timer=millis();
     }
     else if (z_latch == 3 ||  z_latch == 4){  //disable latched mode
       z_latch_time_cooldown = millis();
@@ -544,11 +536,9 @@ void loop()
 
   if (currentmode == 0){
     magnitude = 9;
-    //brightness =127;
 
     //z is 128 at horizontal (over 96) and below 32 (near 0 at verticle)
-    //use absolute x and y and then add in filtere x and y for exaggeration of movement
-
+    //use absolute x and y and then add in filter x and y for exaggeration of movement
 
     //addin relative movenet proprtioanlly to angle
     int  z_absolute_ratio= abs(constrain(abs(z_absolute),0,128)-128) >>4;
@@ -557,8 +547,6 @@ void loop()
     if (abs(x_absolute-previous_x_absolute) >1||  abs(y_absolute-previous_y_absolute) >1){
       angle = (int)(floor(((atan2(y_absolute+y_filtered*z_absolute_ratio,x_absolute+x_filtered*z_absolute_ratio) *2.54)+8.5))) % 16;
     }
-
-
 
     //color rotate code is 3, span rotate is 4
     if(z_latch ==3 || z_latch ==4 ){
@@ -646,12 +634,10 @@ void loop()
   updatearray();
 
   //overlay code
-
-
-
   if (z_latch ==3){
     if (overlaytimer > 0){
       overlaytimer--;
+      idle_timer=millis();
     } 
     else{
       strip.setPixelColor(z_latch_angle ,0);
@@ -662,8 +648,6 @@ void loop()
     strip.setPixelColor(z_latch_angle ,Wheel(384));
     strip.setPixelColor((z_latch_angle + 8) % 16,Wheel(384));
   }
-
-
 
   strip.showCompileTime<ClockPin, DataPin>(); 
 
@@ -696,10 +680,10 @@ void updatearray(){
 }
 
 void sendbattery(){
-    Serial.write(BATTERY_LEVEL);
-    Serial.write((disc_voltage >> 6) & 0xFE);
-    Serial.write(disc_voltage << 1);
-    batteryupdate=millis();
+  Serial.write(BATTERY_LEVEL);
+  Serial.write((disc_voltage >> 6) & 0xFE);
+  Serial.write(disc_voltage << 1);
+  batteryupdate=millis();
 }
 
 int SpanWheel(int SpanWheelPos){
@@ -774,8 +758,6 @@ uint32_t Wheel(uint16_t WheelPos){
     WheelPos = (WheelPos + instantspan +384) % 384;
   }
 
-
-
   switch(WheelPos / 128)
   {
   case 0:
@@ -810,78 +792,6 @@ uint32_t Wheel(uint16_t WheelPos){
   b = b*brightness/127;
   return(strip.Color( r >> fade ,g >> fade,b >> fade));
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

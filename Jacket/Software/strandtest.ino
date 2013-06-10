@@ -113,7 +113,7 @@ byte suit_brightness=127;
 byte disc_brightness=127;
 byte fade=0;
 int color=0;  //the chosen color used for effects  0-383 is mapped to the color wheel  384 is white 385 is rainbow 512 is full white
-byte fade_primer=0;
+byte fade_primer=8;
 
 int instantspan=0; //current span for effects set it to something between zero to span before calling wheel()
 int span=128;  //circle 0 128 256 384 512 mapped to 0 128 0 -128 0 
@@ -498,7 +498,6 @@ void loop() {
 
   //basic setttings and span gestures
   if (zButtonDelayed){
-    fade_primer =0;
     switch (dpad){
     case DPAD_LEFT: //arm chest switch
       effectbuffer_mode=1;
@@ -518,7 +517,9 @@ void loop() {
       break;
     case DPAD_UP_LEFT:
       overlay_primer = 3;
-      fade_primer = 2;
+      if( input_processed == false){
+        fade_primer++;
+      }
       break;
     case DPAD_DOWN_RIGHT:
       if( input_processed == false){
@@ -539,7 +540,9 @@ void loop() {
       }
       break;
     case DPAD_DOWN_LEFT:
-      fade_primer = 1;
+      if( input_processed == false){
+        fade_primer--;
+      }
       overlay_primer = 1;
       break;
     }
@@ -557,15 +560,22 @@ void loop() {
     }
   }
 
-
   //adjust fade on combo release
-  if (fade_primer == 2&& input_processed==false){
-    if (fade > 0  ) fade--; 
-    fade_primer =0;
-  }
-  else if(fade_primer == 1&& input_processed==false){
-    if (fade < 7 && input_processed==false ) fade++; 
-    fade_primer =0;
+  if(fade_primer != 8){
+    //reset if stick is let go of
+    if ((dpad & 0x0F) == 0x00){
+      fade_primer = 8;
+    }
+    //wait for two fade down presses to start fading down
+    if (fade_primer == 6){
+      if (fade < 7) fade++; 
+      fade_primer = 7; //reset to 7 so one more press will adjust again
+    }
+    //wait for two fade up presses to start fading down
+    else if(fade_primer == 10){
+      if (fade > 0 ) fade--;
+      fade_primer =9; //reset to 9 so one more press will adjust again
+    }
   }
 
   //code to roll the rainbow left and right
@@ -589,24 +599,20 @@ void loop() {
   delay(5);
   digitalWrite(msgeq7_reset, LOW);
 
-  //read data from the EQ, fill array sparcely to fill in later
-  for (byte i = 0; i < 7; i++)
-  {
+  //read data from the EQ
+  for (byte i = 0; i < 7; i++) {
     digitalWrite(msgeq7_strobe, LOW);
     delayMicroseconds(40); // to allow the output to settle
     spectrumValue[i] = analogRead(0);
     digitalWrite(msgeq7_strobe, HIGH);
     //  Serial.print(spectrumValue[i]);
-    // Serial.print(" ");
   }
-  // Serial.println(" ");
   //combine highest two bands and normalize 
   if (spectrumValue[6]  > 90){
     spectrumValue[5] = spectrumValue[5] + spectrumValue[6] - 90;
   }
 
-  for (byte i = 0; i < 6; i++)
-  {
+  for (byte i = 0; i < 6; i++) {
     //90 is the input level for mute
     //16 ticks is the max time that can build up
     if(spectrumValue[i] > 90){
@@ -644,7 +650,7 @@ void loop() {
     }
     averagespan =0;
 
-    for(int i=0; i<6; i++)   {
+    for(int i=0; i<6; i++){
       suit_brightness = map(spectrumValue[i],spectrumValueMin[i] ,spectrumValueMax[i],0,127); 
       if(i==5){
         if (suit_brightness > 63){
@@ -884,6 +890,7 @@ void loop() {
   else if (effect_mode == 6){
     suit_brightness=127;
     for( i=0; i<strip_buffer_1.numPixels(); i++) strip_buffer_1.setPixelColor(i, Wheel(color));
+    for( i=0; i<strip_buffer_2.numPixels(); i++) strip_buffer_2.setPixelColor(i, Wheel(color));
     byte tempytilt = map(ytilt, 0, 254,0, 23);
 
     instantspan =  map(tempytilt,0,21,SpanWheel(span),0);
@@ -1043,10 +1050,10 @@ void loop() {
     }
 
   }
- 
+
   //output to disc
   sendserial();    
-  
+
   //output to the strips
   if (effect_mode == 7){
     output(B00000000);
@@ -1556,8 +1563,9 @@ void readserial(){
 }
 
 void nunchuckparse(){
+
   byte dpadtemp =0x00;
-  if(nunchuk.analogMagnitude > 35){
+  if(nunchuk.analogMagnitude > 40){
     if (nunchuk.analogAngle < 10 && nunchuk.analogAngle > -10){
       dpadtemp = DPAD_LEFT;
     }
@@ -1907,14 +1915,13 @@ void updatedisplay(){
     break;
   case 6://announcement
     {
-      Serial3.print(F("Placeholder         Placeholder         Placeholder         Placeholder         "));
+      Serial3.print(F("   TEXTS ACCEPTED       555-555-5555    Up to 160 Characters w/ Hex Color Codes "));
     }
     break;
   case 7://stats 1
     {
       //scratch pad for numbers
       char temp[15];
-
       //line1
       dtostrf(jacket_voltage * 0.01986824769,5,2,temp);
       Serial3.print("    Suit: ");
@@ -1938,7 +1945,6 @@ void updatedisplay(){
       Serial3.print("Beats:  ");
       dtostrf(beats,12,0,temp);
       Serial3.print(temp);
-
     }
     break;
   case 8:
@@ -2215,12 +2221,6 @@ void updatedisplay(){
   fade = tempfade;
   suit_brightness = tempbrightness;
 }
-
-
-
-
-
-
 
 
 

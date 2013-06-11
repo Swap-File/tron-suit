@@ -75,10 +75,10 @@ byte spectrumValueMute[6];  //mutes selected channels
 
 
 //strip bank enable pins
-#define strip_1 48
-#define strip_2 49
-#define strip_3 50
-#define strip_4 51
+#define strip_0 48
+#define strip_1 49
+#define strip_2 50
+#define strip_3 51
 
 //LPD8806 strip pins
 const int dataPin = 53;
@@ -184,7 +184,8 @@ boolean input_processed=false;
 
 LPD8806 strip_buffer_1 = LPD8806(20, dataPin, clockPin);
 LPD8806 strip_buffer_2 = LPD8806(20, dataPin, clockPin);
-
+LPD8806 strip_buffer_3 = LPD8806(20, dataPin, clockPin);
+LPD8806 strip_buffer_4 = LPD8806(20, dataPin, clockPin);
 ArduinoNunchuk nunchuk = ArduinoNunchuk();
 MovingAverage xfilter = MovingAverage();
 MovingAverage yfilter = MovingAverage();
@@ -208,6 +209,8 @@ void setup() {
 
   strip_buffer_1.begin();
   strip_buffer_2.begin();
+  strip_buffer_3.begin();
+  strip_buffer_4.begin();
   nunchuk.init();
   Serial.begin(115200);  //debug
   Serial1.begin(115200);  //Wixel
@@ -215,10 +218,10 @@ void setup() {
   Serial3.begin(115200);  //Helmet 
 
   //strips
+  pinMode(strip_0,OUTPUT);
   pinMode(strip_1,OUTPUT);
   pinMode(strip_2,OUTPUT);
   pinMode(strip_3,OUTPUT);
-  pinMode(strip_4,OUTPUT);
   pinMode(clockPin,OUTPUT);
   pinMode(dataPin,OUTPUT);
 
@@ -345,6 +348,7 @@ void loop() {
 
   if (millis() - fps_time > 1000){
     fps_last = fps;
+    Serial.println(fps);
     fps=0;
     fps_time=millis();
   }
@@ -595,8 +599,7 @@ void loop() {
   int spectrumValueMaxAll = 0;
   int spectrumValueMin[7];
   int spectrumValue[7]; // to hold a2d values
-  digitalWrite(msgeq7_reset, HIGH);
-  delay(5);
+
   digitalWrite(msgeq7_reset, LOW);
 
   //read data from the EQ
@@ -605,8 +608,9 @@ void loop() {
     delayMicroseconds(40); // to allow the output to settle
     spectrumValue[i] = analogRead(0);
     digitalWrite(msgeq7_strobe, HIGH);
-    //  Serial.print(spectrumValue[i]);
   }
+  digitalWrite(msgeq7_reset, HIGH);
+
   //combine highest two bands and normalize 
   if (spectrumValue[6]  > 90){
     spectrumValue[5] = spectrumValue[5] + spectrumValue[6] - 90;
@@ -635,6 +639,83 @@ void loop() {
     spectrumValue[i]= constrain(spectrumValue[i],spectrumValueMin[i],spectrumValueMax[i]);
   } 
 
+  //load the backup effects buffers on diagonal output modes
+  if (output_mode ==1 ||output_mode ==3 ||output_mode ==5 ||output_mode ==7 ){
+
+    int tempcolor = color;
+    int tempspan = span;
+    if (effect_mode ==0 || effect_mode ==1){ //flip the colors when in mode 1 since otherwise its hard to see a difference.
+
+      color =(color + SpanWheel(span) +384) % 384;
+      //span =  (span + 256) % 512;
+    }
+
+    for(int i=0; i<6; i++){
+      suit_brightness = map(spectrumValue[i],spectrumValueMin[i] ,spectrumValueMax[i],0,127); 
+      if(i==5){
+        if (suit_brightness > 63){
+          instantspan =  map(suit_brightness,64,127,0,SpanWheel(span));
+          averagespan = averagespan + instantspan;
+          strip_buffer_3.setPixelColor(9,  Wheel(color));
+          strip_buffer_3.setPixelColor(10,  Wheel(color));
+          instantspan= map(suit_brightness,64,127,SpanWheel(span),0);
+          strip_buffer_4.setPixelColor(9,  Wheel(color));
+          strip_buffer_4.setPixelColor(10,  Wheel(color));
+        }
+        else{
+          instantspan =0;
+          strip_buffer_3.setPixelColor(9,  Wheel(color));
+          strip_buffer_3.setPixelColor(10,  Wheel(color));
+          instantspan= SpanWheel(span);
+          strip_buffer_4.setPixelColor(9,  Wheel(color));
+          strip_buffer_4.setPixelColor(10,  Wheel(color));
+        }
+      }
+      else{
+        if (suit_brightness > 63){
+          instantspan =  map(suit_brightness,64,127,0,SpanWheel(span));
+          averagespan = averagespan + instantspan;
+          strip_buffer_3.setPixelColor(2*i,  Wheel(color));
+          strip_buffer_3.setPixelColor(19-2*i,  Wheel(color));
+          instantspan= map(suit_brightness,64,127,SpanWheel(span),0);
+          strip_buffer_4.setPixelColor(2*i,  Wheel(color));
+          strip_buffer_4.setPixelColor(19-2*i,  Wheel(color));
+        }
+        else{
+          instantspan =0;
+          strip_buffer_3.setPixelColor(2*i,  Wheel(color));
+          strip_buffer_3.setPixelColor(19-2*i,  Wheel(color));
+          instantspan= SpanWheel(span);
+          strip_buffer_4.setPixelColor(2*i,  Wheel(color));
+          strip_buffer_4.setPixelColor(19-2*i,  Wheel(color));
+        }
+      }
+      if (i<4){
+        suit_brightness = map((spectrumValue[i+1] + spectrumValue[i]) >> 1,(spectrumValueMin[i] + spectrumValueMin[i+1]) >> 1 ,(spectrumValueMax[i] + spectrumValueMax[i+1]) >> 1,0,127); 
+        if (suit_brightness > 63){
+          instantspan =  map(suit_brightness,64,127,0,SpanWheel(span));
+          averagespan = averagespan + instantspan;
+          strip_buffer_3.setPixelColor(19-(2*i+1),  Wheel(color));
+          strip_buffer_3.setPixelColor(2*i+1,  Wheel(color));
+          instantspan= map(suit_brightness,64,127,SpanWheel(span),0);
+          strip_buffer_4.setPixelColor(19-(2*i+1),  Wheel(color));
+          strip_buffer_4.setPixelColor(2*i+1,  Wheel(color));
+        }
+        else{
+          instantspan =0;
+          strip_buffer_3.setPixelColor(19-(2*i+1),  Wheel(color));
+          strip_buffer_3.setPixelColor(2*i+1,  Wheel(color));
+          instantspan= SpanWheel(span);
+          strip_buffer_4.setPixelColor(19-(2*i+1),  Wheel(color));
+          strip_buffer_4.setPixelColor(2*i+1,  Wheel(color));
+        }
+      }
+    }
+    color= tempcolor;
+    span= tempspan;
+  }
+
+
   //generate effects array based on mode
   if(effect_mode == 0){
     auto_pump_mode=0;
@@ -644,10 +725,6 @@ void loop() {
       effectbuffer_mode = 2;
     }
 
-    //undo ugly output modes
-    if (output_mode == 2 || output_mode == 3 || output_mode == 6 || output_mode == 7){
-      output_mode = 0;
-    }
     averagespan =0;
 
     for(int i=0; i<6; i++){
@@ -720,10 +797,6 @@ void loop() {
       effectbuffer_mode = 2;
     }
 
-    //undo ugly output modes
-    if (output_mode == 2 || output_mode == 3 || output_mode == 6 || output_mode == 7){
-      output_mode = 0;
-    }
     averagespan =0;
 
     suit_brightness = map(spectrumValue[0]*.3,spectrumValueMin[0]*.3,spectrumValueMax[0]*.3,0,127); 
@@ -956,16 +1029,13 @@ void loop() {
   else if (effect_mode == 8){
     auto_pump_mode=0;
 
-    if (effectbuffer_mode != 0){
-      effectbuffer_mode = 0;
-    }
-
     suit_brightness=127;
     for( i=0; i<strip_buffer_1.numPixels(); i++)     {
       instantspan =  map(i,0,19,0,SpanWheel(span));
       strip_buffer_1.setPixelColor(i,  Wheel(color));
     }
   }
+
 
   if (overlay_primer!=0){ //code to start overlays
     //fadeout (Dpad down left)
@@ -986,6 +1056,7 @@ void loop() {
         overlay_starting_time =millis();
         overlay_duration=500;
         effect_mode=8;
+        output_mode=0;
         effectbuffer_mode=0;
         fade=0;
         overlay_mode=overlay_primer;
@@ -1016,11 +1087,10 @@ void loop() {
       }
       else{ //fadeout and pulse overlay
         suit_brightness=overlay_brightness; //this gets overwritten next cycle
-
         //get color 1
         fade=0;
         instantspan=0;
-        unsigned long  tempcolor =Wheel(color);
+        unsigned long tempcolor =Wheel(color);
         byte r = (tempcolor >> 8) ;
         byte g  = (tempcolor >> 16);
         byte b = (tempcolor >>0);
@@ -1039,6 +1109,43 @@ void loop() {
           strip_buffer_1.pixels[i*3+2] = strip_buffer_1.pixels[i*3+2] | b;
           strip_buffer_2.pixels[i*3+2] = strip_buffer_2.pixels[i*3+2] | b;
         }
+
+
+        suit_brightness=overlay_brightness; //this gets overwritten next cycle
+        //get color 1
+        fade=0;
+        instantspan=0;
+        if (effect_mode ==0 || effect_mode ==1 ){
+          tempcolor =(color + SpanWheel(span) +384) % 384;
+        }
+        else{
+          tempcolor =Wheel(color); 
+        }
+        r = (tempcolor >> 8) ;
+        g  = (tempcolor >> 16);
+        b = (tempcolor >>0);
+
+        //get color 2 and combine
+        if (effect_mode ==0 || effect_mode ==1){
+          tempcolor =(color + SpanWheel(span) +384) % 384;
+        }
+        else{
+          tempcolor =Wheel(color); 
+        }
+
+        r = r | (tempcolor >> 8);
+        g = g | (tempcolor >> 16);
+        b = b |( tempcolor >>0) ;
+        for( i=0; i<strip_buffer_1.numPixels(); i++){
+          strip_buffer_3.pixels[i*3+1] = strip_buffer_3.pixels[i*3+1] | r;
+          strip_buffer_4.pixels[i*3+1] = strip_buffer_4.pixels[i*3+1] | r;
+          strip_buffer_3.pixels[i*3]= strip_buffer_3.pixels[i*3] | g;
+          strip_buffer_4.pixels[i*3]= strip_buffer_4.pixels[i*3] | g;
+          strip_buffer_3.pixels[i*3+2] = strip_buffer_3.pixels[i*3+2] | b;
+          strip_buffer_4.pixels[i*3+2] = strip_buffer_4.pixels[i*3+2] | b;
+        }
+
+
       }
     }
     else{ //code to run when exiting overlays
@@ -1055,35 +1162,53 @@ void loop() {
   sendserial();    
 
   //output to the strips
+  //upper 4 bits select primary or secondary effect (for EQ mode on shoulders while motion mode on chest)
+  //lower 4 bits select normal or reversed display
+  //I wouldnt have packed the data into a byte, but it makes it so much easier to see
+
   if (effect_mode == 7){
-    output(B00000000);
+    switch (output_mode){
+    case 0: //down
+    case 2: //left
+    case 4: //up 
+    case 6: //right
+      output(B00000000);
+      break;
+    case 3: //up left
+    case 5: //up right
+      output(B01100000);
+      break;
+    case 1: //down left
+    case 7: //down right
+      output(B10010000);
+      break;
+    }
   }
-  else
-  {
+  else {
     switch (output_mode){
     case 0: //down
       output(B00000000);
       break;
     case 1: //down left
-      output(B00001001);
+      output(B10010000);
       break; 
     case 2:  //left
       output(B00000011);
       break;
     case 3: //up left
-      output(B00001010);
+      output(B01100100);
       break;
     case 4: //up 
       output(B00001111);
       break;
     case 5: //up right
-      output(B00000110);
+      output(B01101111);
       break;
     case 6: //right
       output(B00001100);
       break;
     case 7: //down right
-      output(B00000101);
+      output(B10011000);
       break;
     }
   }
@@ -1092,6 +1217,133 @@ void loop() {
   updatedisplay();    
 
 }
+
+
+void output(byte w){
+
+  if ((effect_mode == 7 && active_segment > 2) || effect_mode != 7 ){
+    digitalWrite(strip_0,LOW);
+    output_strip(bitRead(w,0+4),bitRead(w,0),1,3);
+    digitalWrite(strip_0,HIGH);
+
+    digitalWrite(strip_3,LOW);
+    output_strip(bitRead(w,3+4),bitRead(w,3),1,4);
+    digitalWrite(strip_3,HIGH);
+
+  }
+  else{
+    //special mode for alternating between blanking and backup effects
+    digitalWrite(strip_0,LOW);
+    if(bitRead(w,0+4)){
+      output_strip(bitRead(w,0+4),bitRead(w,0),1,3);
+    }
+    else{
+      strip_buffer_1.showCompileTimeBlank<clockPin, dataPin>();
+    }
+    digitalWrite(strip_0,HIGH);
+
+    digitalWrite(strip_3,LOW);
+    if(bitRead(w,3+4)){
+      output_strip(bitRead(w,3+4),bitRead(w,3),1,4);
+    }
+    else{
+      strip_buffer_1.showCompileTimeBlank<clockPin, dataPin>();
+    }
+    digitalWrite(strip_3,HIGH);
+  }
+
+
+  if ((effect_mode == 7 && active_segment < 3) || effect_mode != 7){
+    digitalWrite(strip_1,LOW);
+    output_strip(bitRead(w,1+4),bitRead(w,1),2,4);
+    digitalWrite(strip_1,HIGH);
+
+    digitalWrite(strip_2,LOW);
+    output_strip(bitRead(w,2+4),bitRead(w,2),2,3);
+    digitalWrite(strip_2,HIGH);
+  }
+  else{
+    //special mode for alternating between blanking and backup effects
+    digitalWrite(strip_1,LOW);
+    if(bitRead(w,1+4)){
+      output_strip(bitRead(w,1+4),bitRead(w,1),2,4);
+    }
+    else{
+      strip_buffer_1.showCompileTimeBlank<clockPin, dataPin>();
+    }
+    digitalWrite(strip_1,HIGH);
+
+    digitalWrite(strip_2,LOW);
+    if(bitRead(w,2+4)){
+      output_strip(bitRead(w,2+4),bitRead(w,2),2,3);
+    }
+    else{
+      strip_buffer_1.showCompileTimeBlank<clockPin, dataPin>();
+    }
+    digitalWrite(strip_2,HIGH);
+  }
+}
+
+
+void output_strip(boolean y, boolean w, byte x, byte z){
+  if (y == 0){//choose primary effect
+    if (w == 1){//choose direction 1
+      if (effectbuffer_mode == x || effectbuffer_mode == z){ //alternate colors based on effectbuffer_mode
+        strip_buffer_2.showCompileTime<clockPin, dataPin>(); 
+      }
+      else{
+        strip_buffer_1.showCompileTime<clockPin, dataPin>(); 
+      }
+    }
+    else{
+      if (effect_mode == 0){//reverse the effect differently for mode 0
+        if (effectbuffer_mode ==x || effectbuffer_mode == z){ //choose alternate colors
+          strip_buffer_2.showCompileTimeFold<clockPin, dataPin>();
+        }
+        else{
+          strip_buffer_1.showCompileTimeFold<clockPin, dataPin>();
+        }
+      }
+      else{
+        if (effectbuffer_mode == x || effectbuffer_mode == z){ //choose alternate colors
+          strip_buffer_2.showCompileTimeFlip<clockPin, dataPin>();
+        }
+        else{
+          strip_buffer_1.showCompileTimeFlip<clockPin, dataPin>();
+        }
+      }
+    } 
+  }
+  else{//choose backup effect
+    if (w == 1){//choose direction 1
+      if (effectbuffer_mode == x || effectbuffer_mode == z){ //choose alternate colors
+        strip_buffer_4.showCompileTime<clockPin, dataPin>(); 
+      }
+      else{
+        strip_buffer_3.showCompileTime<clockPin, dataPin>(); 
+      }
+    }
+    else{
+      if (effect_mode == 0){//reverse the effect differently for mode 0
+        if (effectbuffer_mode == x || effectbuffer_mode == z){ //choose alternate colors
+          strip_buffer_4.showCompileTimeFold<clockPin, dataPin>();
+        }
+        else{
+          strip_buffer_3.showCompileTimeFold<clockPin, dataPin>();
+        }
+      }
+      else{
+        if (effectbuffer_mode == x || effectbuffer_mode == z){ //choose alternate colors
+          strip_buffer_4.showCompileTimeFlip<clockPin, dataPin>();
+        }
+        else{
+          strip_buffer_3.showCompileTimeFlip<clockPin, dataPin>();
+        }
+      }
+    }
+  }
+}
+
 
 int gesture(int inputvalue, int itemrange){
   //inputvalue rotate code
@@ -1170,150 +1422,8 @@ int gesture(int inputvalue, int itemrange){
 }
 
 
-void output(byte w){
-
-  if ((effect_mode == 7 && active_segment > 2) || effect_mode != 7){
-    digitalWrite(strip_1,LOW);
-    if (bitRead(w,0) == 1){
-      if (effectbuffer_mode == 1 || effectbuffer_mode == 3){
-        strip_buffer_2.showCompileTime<clockPin, dataPin>(); 
-      }
-      else{
-        strip_buffer_1.showCompileTime<clockPin, dataPin>(); 
-      }
-    }
-    else{
-      if (effect_mode == 0){
-        if (effectbuffer_mode == 1 || effectbuffer_mode == 3){
-          strip_buffer_2.showCompileTimeFold<clockPin, dataPin>();
-        }
-        else{
-          strip_buffer_1.showCompileTimeFold<clockPin, dataPin>();
-        }
-      }
-      else{
-        if (effectbuffer_mode == 1 || effectbuffer_mode == 3){
-          strip_buffer_2.showCompileTimeFlip<clockPin, dataPin>();
-        }
-        else{
-          strip_buffer_1.showCompileTimeFlip<clockPin, dataPin>();
-        }
-      }
-    }
-    digitalWrite(strip_1,HIGH);
-
-    digitalWrite(strip_4,LOW);
-    if (bitRead(w,3)== 1){
-      if (effectbuffer_mode == 1 || effectbuffer_mode == 4){
-        strip_buffer_2.showCompileTime<clockPin, dataPin>(); 
-      }
-      else{
-        strip_buffer_1.showCompileTime<clockPin, dataPin>(); 
-      }
-    }
-    else{
-      if (effect_mode == 0){
-        if (effectbuffer_mode == 1 || effectbuffer_mode == 4){
-          strip_buffer_2.showCompileTimeFold<clockPin, dataPin>();
-        }
-        else{
-          strip_buffer_1.showCompileTimeFold<clockPin, dataPin>();
-        }
-      }
-      else{
-        if (effectbuffer_mode == 1 || effectbuffer_mode == 4){
-          strip_buffer_2.showCompileTimeFlip<clockPin, dataPin>();
-        }
-        else{
-          strip_buffer_1.showCompileTimeFlip<clockPin, dataPin>();
-        }
-      }
-    }
-    digitalWrite(strip_4,HIGH);
-  }
-  else{
-    //blank them
-    digitalWrite(strip_1,LOW);
-    digitalWrite(strip_4,LOW);
-
-    strip_buffer_1.showCompileTimeBlank<clockPin, dataPin>();
-    digitalWrite(strip_1,HIGH);
-    digitalWrite(strip_4,HIGH);
-
-  }
-
-  if ((effect_mode == 7 && active_segment < 3) || effect_mode != 7){
-    digitalWrite(strip_2,LOW);
-    if (bitRead(w,1)== 1){
-      if (effectbuffer_mode == 2 || effectbuffer_mode == 4){
-        strip_buffer_2.showCompileTime<clockPin, dataPin>(); 
-      }
-      else{
-        strip_buffer_1.showCompileTime<clockPin, dataPin>(); 
-      }
-    }
-    else{
-      if (effect_mode == 0){
-        if (effectbuffer_mode == 2 || effectbuffer_mode == 4){
-          strip_buffer_2.showCompileTimeFold<clockPin, dataPin>();
-        }
-        else{
-          strip_buffer_1.showCompileTimeFold<clockPin, dataPin>();
-        }
-      }
-      else{
-        if (effectbuffer_mode == 2 || effectbuffer_mode == 4){
-          strip_buffer_2.showCompileTimeFlip<clockPin, dataPin>();
-        }
-        else{
-          strip_buffer_1.showCompileTimeFlip<clockPin, dataPin>();
-        }
-      }
-    }
-    digitalWrite(strip_2,HIGH);
 
 
-
-    digitalWrite(strip_3,LOW);
-    if (bitRead(w,2)== 1){
-      if (effectbuffer_mode == 2 || effectbuffer_mode == 3){
-        strip_buffer_2.showCompileTime<clockPin, dataPin>(); 
-      }
-      else{
-        strip_buffer_1.showCompileTime<clockPin, dataPin>(); 
-      }
-    }
-    else{
-      if (effect_mode == 0){
-        if (effectbuffer_mode == 2 || effectbuffer_mode == 3){
-          strip_buffer_2.showCompileTimeFold<clockPin, dataPin>();
-        }
-        else{
-          strip_buffer_1.showCompileTimeFold<clockPin, dataPin>();
-        }
-      }
-      else{
-        if (effectbuffer_mode == 2 || effectbuffer_mode == 3){
-          strip_buffer_2.showCompileTimeFlip<clockPin, dataPin>();
-        }
-        else{
-          strip_buffer_1.showCompileTimeFlip<clockPin, dataPin>();
-        }
-      }
-    }
-    digitalWrite(strip_3,HIGH);
-  }
-  else{
-    //blank them
-    digitalWrite(strip_2,LOW);
-    digitalWrite(strip_3,LOW);
-
-    strip_buffer_2.showCompileTimeBlank<clockPin, dataPin>();
-
-    digitalWrite(strip_2,HIGH);
-    digitalWrite(strip_3,HIGH);
-  }
-}
 
 
 int SpanWheel(int SpanWheelPos){
@@ -2221,7 +2331,4 @@ void updatedisplay(){
   fade = tempfade;
   suit_brightness = tempbrightness;
 }
-
-
-
 

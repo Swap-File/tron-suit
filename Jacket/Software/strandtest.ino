@@ -647,8 +647,7 @@ void loop() {
   //load the backup effects buffers on diagonal output modes
   if (output_mode ==1 || output_mode ==3 || output_mode ==5 || output_mode ==7 ){
     int tempcolor = color;
-    int tempspan = span;
-    if (effect_mode ==0 || effect_mode ==1){ //flip the colors when in mode 1 since otherwise its hard to see a difference.
+    if ((effect_mode ==0 || effect_mode ==1) && color < 384){ //flip the colors when in mode 1 since otherwise its hard to see a difference.
       color =(color + SpanWheel(span) +384) % 384;
     }
 
@@ -1111,7 +1110,7 @@ void loop() {
         }
 
         instantspan = 0;
-        if (effect_mode == 0 || effect_mode == 1){
+        if ((effect_mode == 0 || effect_mode == 1) && color < 384){
           tempcolor = (color + SpanWheel(span) + 384) % 384;
         }
         else{
@@ -1122,7 +1121,7 @@ void loop() {
         b = (tempcolor >> 0);
 
         //get color 2 and combine
-        if (effect_mode ==0 || effect_mode ==1){
+        if ((effect_mode ==0 || effect_mode ==1) && color < 384){
           tempcolor =(color + SpanWheel(span) +384) % 384;
         }
         else {
@@ -2236,9 +2235,8 @@ void updatedisplay(){
         }
         else{
           //60 is minimum bpm
-          if (bpm_period>1000) {
-            bpm_period = 1000;
-          }
+          bpm_period = constrain(bpm_period,200,1000);
+          
           //filter the bpm
           bpm_period = bpm_period * .5 + (millis()-bpm_starting_time) *.5;
           bpm_starting_time= millis(); 

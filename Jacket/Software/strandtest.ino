@@ -137,20 +137,25 @@ byte serial2payloadsize=0;
 byte serial1payloadsize=0; 
 byte frame1[80] = "                                                                               ";
 byte frame2[80] = "                                                                               ";
-
-byte frame_mode=0;
-boolean frame_toggle_primer=false;
-boolean frame_toggle=false;
-byte animation_speed = 0;
 byte serial1buffer[3];
 byte serial1bufferpointer = 0;
-boolean diag_toggle_primer = false;
-unsigned long display_timer=0;  //go back to default display in 60 seconds
-#define DISPLAYTIMEOUT 60000 
-unsigned long frame_timer=0;  //switch to alt frame every 5 seconds
-#define FRAMETIMEOUT 5000 
+
+
+
+boolean animation_primer = false; //up right
+unsigned long animation_speedup_timer =0;
+
+boolean diag_primer = false; //down right
 unsigned long ring_timer=0; //flash screen to ring for incoming message
-#define RINGTIMEOUT 1000 
+#define RINGTIMEOUT 1000  //time to flash for
+unsigned long display_timer=0;  //time we started displaying a frame at
+unsigned long display_timer_timeout=0;  //how long to keep a text message on the display  set to 60000 for texts 5000 for diag
+unsigned long frame_advance_timer =0; //when a frame was last displayed so we know when to automatically advance
+#define ANIMATION_SPEED 5000   //time between automatic frame advances
+byte animation_speedup = 0;  //bigger number makes frames animate faster
+unsigned long animation_speed_timer = 0;  //keeps track of when next frame advance is
+byte frame_mode=0;  //which frame we are displaying
+boolean resetframe=false; //if I let go of the stick while in diag mode and reenter it resets what frame I am on
 
 //these filter the inputs from the buttons
 //about two fps
@@ -252,9 +257,9 @@ void setup() {
   //load initial data into text messaging buffers
   sprintf((char*)&frame1[0],"Lifetime Minutes:");
   sprintf((char*)&frame1[20],"%d",eeprom_time_starting);
-  sprintf((char*)&frame1[40],"Lifetime Beats:");
-  sprintf((char*)&frame1[60],"%d",eeprom_beats_starting);
-  memcpy(frame2,frame1,sizeof(frame1));
+  sprintf((char*)&frame2[40],"Lifetime Beats:");
+  sprintf((char*)&frame2[60],"%d",eeprom_beats_starting);
+  // memcpy(frame2,frame1,sizeof(frame1));
 
   //start the timer, it will save to eeprom in one minute from this
   eeprom_timer=millis();
@@ -344,6 +349,7 @@ void loop() {
     last_set_brightness=128; //set to impossible value to force sending first time
     last_set_fade=8;  //set to impossible value to force sending first time
     disc_voltage=0;
+
   }
 
   if (millis() - fps_time > 1000){
@@ -356,7 +362,7 @@ void loop() {
 
   //reset flags
   overlay_primer=0;
-  animation_speed=0;
+  animation_speedup=0;
 
   readserial();     //read serial data
 
@@ -366,7 +372,7 @@ void loop() {
   //reset variables for monitoring buttons
   if (nunchuk.zButton == 0 && nunchuk.cButton == 0 ){
     input_processed=false;
-    latch_flag=0;   
+    latch_flag = 0;   
   }
   //colors
   //effect_mode and output_mode settings
@@ -374,13 +380,13 @@ void loop() {
     //generate one pulse on any input
     if((dpad & 0x0F) != 0x00){
       //opening overlay pulse
-      if(fade == 7 || effect_mode ==8){
-        overlay_primer=4;
+      if(fade == 7 || effect_mode == 8){
+        overlay_primer = 4;
       }
       if (input_processed == false){ 
         //quick one time overlay pulse event to hide transitions
         if (fade!=7 && effect_mode !=8 && effect_mode !=7){
-          overlay_primer=2;
+          overlay_primer = 2;
         }
       }
       input_processed= true;       
@@ -460,35 +466,35 @@ void loop() {
     switch (dpad){
     case DPAD_LEFT:
       color= 0; //red
-      span =0;
+      span = 0;
       break;
     case DPAD_RIGHT:
       color=192; //cyan
-      span =0;
+      span = 0;
       break;
     case DPAD_UP:
       color= 256; //blue
-      span =0;
+      span = 0;
       break;
     case DPAD_DOWN:
       color= 385;//rainbow - special case
-      span =0;
+      span = 0;
       break;
     case DPAD_UP_LEFT:
       color= 128;//green
-      span =0;
+      span = 0;
       break;
     case DPAD_DOWN_RIGHT:
       color= 320;//purple
-      span =0;
+      span = 0;
       break;
     case DPAD_UP_RIGHT:
       color= 64;//yellow
-      span =0;
+      span = 0;
       break;
     case DPAD_DOWN_LEFT:
       color= 384;//white - special case
-      span =0;
+      span = 0;
       break;
     default:
       if (color < 384){  
@@ -504,7 +510,7 @@ void loop() {
   if (zButtonDelayed){
     switch (dpad){
     case DPAD_LEFT: //arm chest switch
-      effectbuffer_mode=1;
+      effectbuffer_mode = 1;
       break;
     case DPAD_RIGHT: //chest chest seitch
       effectbuffer_mode = 3;
@@ -522,25 +528,26 @@ void loop() {
     case DPAD_UP_LEFT:
       overlay_primer = 3;
       if( input_processed == false){
+
         fade_primer++;
       }
       break;
     case DPAD_DOWN_RIGHT:
       if( input_processed == false){
-        diag_toggle_primer=true;
+        diag_primer=true;
+        display_timer =millis();
+        display_timer_timeout = 5000;
       }
-      display_timer=millis();  //reset timers
-      frame_timer=display_timer;
       break;
     case DPAD_UP_RIGHT:
-      animation_speed=5; //speed up while held
       if( input_processed == false){
-        if (color != 385 && frame_mode != 2){
-          frame_mode=1;  //force to pattern 1 when not in nyan mode or in mode 2
-        }
-        frame_toggle_primer=true;
-        display_timer=millis();  //reset timers
-        frame_timer=display_timer;
+        display_timer =millis();
+        display_timer_timeout = 60000;
+        animation_speedup_timer = millis();
+        animation_primer=true;
+      }
+      if (millis()- animation_speedup_timer > 200){
+        animation_speedup = 5;
       }
       break;
     case DPAD_DOWN_LEFT:
@@ -615,7 +622,6 @@ void loop() {
   if (spectrumValue[6]  > 90){
     spectrumValue[5] = spectrumValue[5] + spectrumValue[6] - 90;
   }
-
   for (byte i = 0; i < 6; i++) {
     //90 is the input level for mute
     //16 ticks is the max time that can build up
@@ -632,7 +638,6 @@ void loop() {
     if (spectrumValueMute[i] < 3){
       spectrumValue[i] = 70;
     }
-
     spectrumValueMax[i] = max(max(spectrumValueMax[i] * .99 ,spectrumValue[i]),120);
     spectrumValueMin[i] = max( spectrumValueMax[i]*.75 ,90);
     spectrumValueMaxAll = max(spectrumValueMaxAll,spectrumValueMax[i]);
@@ -640,14 +645,11 @@ void loop() {
   } 
 
   //load the backup effects buffers on diagonal output modes
-  if (output_mode ==1 ||output_mode ==3 ||output_mode ==5 ||output_mode ==7 ){
-
+  if (output_mode ==1 || output_mode ==3 || output_mode ==5 || output_mode ==7 ){
     int tempcolor = color;
     int tempspan = span;
     if (effect_mode ==0 || effect_mode ==1){ //flip the colors when in mode 1 since otherwise its hard to see a difference.
-
       color =(color + SpanWheel(span) +384) % 384;
-      //span =  (span + 256) % 512;
     }
 
     for(int i=0; i<6; i++){
@@ -712,7 +714,6 @@ void loop() {
       }
     }
     color= tempcolor;
-    span= tempspan;
   }
 
 
@@ -1036,7 +1037,6 @@ void loop() {
     }
   }
 
-
   if (overlay_primer!=0){ //code to start overlays
     //fadeout (Dpad down left)
     if(overlay_primer == 1){
@@ -1091,16 +1091,16 @@ void loop() {
         fade=0;
         instantspan=0;
         unsigned long tempcolor =Wheel(color);
-        byte r = (tempcolor >> 8) ;
-        byte g  = (tempcolor >> 16);
+        byte r = (tempcolor >> 8);
+        byte g = (tempcolor >> 16);
         byte b = (tempcolor >>0);
 
         //get color 2 and combine
-        instantspan=SpanWheel(span);
-        tempcolor =Wheel(color);
+        instantspan = SpanWheel(span);
+        tempcolor = Wheel(color);
         r = r | (tempcolor >> 8);
         g = g | (tempcolor >> 16);
-        b = b |(tempcolor >>0) ;
+        b = b | (tempcolor >> 0);
         for( i=0; i<strip_buffer_1.numPixels(); i++){
           strip_buffer_1.pixels[i*3+1] = strip_buffer_1.pixels[i*3+1] | r;
           strip_buffer_2.pixels[i*3+1] = strip_buffer_2.pixels[i*3+1] | r;
@@ -1110,42 +1110,36 @@ void loop() {
           strip_buffer_2.pixels[i*3+2] = strip_buffer_2.pixels[i*3+2] | b;
         }
 
-
-        suit_brightness=overlay_brightness; //this gets overwritten next cycle
-        //get color 1
-        fade=0;
-        instantspan=0;
-        if (effect_mode ==0 || effect_mode ==1 ){
-          tempcolor =(color + SpanWheel(span) +384) % 384;
+        instantspan = 0;
+        if (effect_mode == 0 || effect_mode == 1){
+          tempcolor = (color + SpanWheel(span) + 384) % 384;
         }
         else{
-          tempcolor =Wheel(color); 
+          tempcolor = Wheel(color); 
         }
         r = (tempcolor >> 8) ;
-        g  = (tempcolor >> 16);
-        b = (tempcolor >>0);
+        g = (tempcolor >> 16);
+        b = (tempcolor >> 0);
 
         //get color 2 and combine
         if (effect_mode ==0 || effect_mode ==1){
           tempcolor =(color + SpanWheel(span) +384) % 384;
         }
-        else{
+        else {
           tempcolor =Wheel(color); 
         }
 
         r = r | (tempcolor >> 8);
         g = g | (tempcolor >> 16);
-        b = b |( tempcolor >>0) ;
+        b = b | (tempcolor >> 0);
         for( i=0; i<strip_buffer_1.numPixels(); i++){
           strip_buffer_3.pixels[i*3+1] = strip_buffer_3.pixels[i*3+1] | r;
           strip_buffer_4.pixels[i*3+1] = strip_buffer_4.pixels[i*3+1] | r;
-          strip_buffer_3.pixels[i*3]= strip_buffer_3.pixels[i*3] | g;
-          strip_buffer_4.pixels[i*3]= strip_buffer_4.pixels[i*3] | g;
+          strip_buffer_3.pixels[i*3] = strip_buffer_3.pixels[i*3] | g;
+          strip_buffer_4.pixels[i*3] = strip_buffer_4.pixels[i*3] | g;
           strip_buffer_3.pixels[i*3+2] = strip_buffer_3.pixels[i*3+2] | b;
           strip_buffer_4.pixels[i*3+2] = strip_buffer_4.pixels[i*3+2] | b;
         }
-
-
       }
     }
     else{ //code to run when exiting overlays
@@ -1155,7 +1149,6 @@ void loop() {
       overlay_mode=0;
       disc_brightness=127;
     }
-
   }
 
   //output to disc
@@ -1218,9 +1211,7 @@ void loop() {
 
 }
 
-
 void output(byte w){
-
   if ((effect_mode == 7 && active_segment > 2) || effect_mode != 7 ){
     digitalWrite(strip_0,LOW);
     output_strip(bitRead(w,0+4),bitRead(w,0),1,3);
@@ -1266,6 +1257,7 @@ void output(byte w){
     //special mode for alternating between blanking and backup effects
     digitalWrite(strip_1,LOW);
     if(bitRead(w,1+4)){
+
       output_strip(bitRead(w,1+4),bitRead(w,1),2,4);
     }
     else{
@@ -1420,10 +1412,6 @@ int gesture(int inputvalue, int itemrange){
   }
   return inputvalue;
 }
-
-
-
-
 
 
 int SpanWheel(int SpanWheelPos){
@@ -1638,7 +1626,7 @@ void readserial(){
         {
           memcpy(frame2,&serial2buffer[1],sizeof(frame2));
           display_timer=millis();
-          frame_timer= display_timer;
+          frame_advance_timer=display_timer;
           frame_mode = 1;
           //turn on to static mode full bright when disabled
           if (fade == 7){
@@ -1895,75 +1883,116 @@ void updatedisplay(){
   Serial3.write(r<<1);//r
   Serial3.write(g<<1);//g
   Serial3.write(b<<1);//b
+  //exit on timer complete
 
   //reset to default display if timer ran out
-  if(millis() - display_timer > DISPLAYTIMEOUT){
+  if(millis() - display_timer > display_timer_timeout){
     frame_mode = 0;
+    resetframe= false;
   }
   else{
+
+    if( frame_mode > 4){ //in diag display mode
+      if(dpad != DPAD_DOWN_RIGHT){
+        resetframe = true; //reset frame mode if released
+      } 
+      else{
+        display_timer = millis(); //increase timer while held
+      }
+    }
+
+    if(diag_primer == true){
+      switch(frame_mode){
+      case 0: //normal mode
+        frame_mode = 5;
+        break;
+      case 1://texting 1
+      case 2://texting 2
+      case 3://nyan 1
+      case 4://nyan 2
+        frame_mode = 0;
+        break;
+      case 5://normal 
+        if (resetframe == true){
+          frame_mode = 5;
+          resetframe = false;
+        }
+        else{
+          frame_mode = 6;
+        }
+        break;
+      case 6://announce 
+        if (resetframe == true){
+          frame_mode = 5;
+          resetframe = false;
+        }
+        else{
+          frame_mode = 7;
+        }
+        break;
+      case 7://diag 1 
+        if (resetframe == true){
+          frame_mode = 5;
+          resetframe = false;
+        }
+        else{
+          frame_mode = 8; //last diag mode is 8
+        }
+        break;
+      case 8://diag 1 
+        if (resetframe == true){
+          frame_mode = 5;
+          resetframe = false;
+        }
+        break;
+      default:
+        frame_mode=5;
+      }
+      display_timer = millis();
+      diag_primer = false;
+    }
+
+    //toggle effects otherwise
+    if(animation_primer==true){
+      switch(frame_mode){
+      case 0: //texting 1
+        frame_mode = 1;
+        break;
+      case 1: //texting 1
+        frame_mode = 2;
+        break;
+      case 2: //texting 2
+        frame_mode = 1;
+        break;
+      case 3://nyan 1
+        frame_mode = 4;
+        break;
+      case 4://nyan 2
+        frame_mode = 3;
+        break;
+      default:
+        frame_mode = 1;
+      }
+      frame_advance_timer = millis();
+      animation_primer = false;
+    }
+    //self priming for animation
+    if(frame_mode==1 ||frame_mode==2 ||frame_mode==3 || frame_mode==4){
+      if ((millis()- frame_advance_timer) > (ANIMATION_SPEED >> animation_speedup)){
+        animation_primer=true;
+      }
+    }
     //forced nyan entry
-    if(color == 385 && (frame_mode != 4 && frame_mode != 3)){
+    if(color == 385 && (frame_mode == 2 || frame_mode == 1)){
       frame_mode = 3;
     }
+
     //forced nyan exit
     if(color != 385 && (frame_mode == 4 || frame_mode == 3)){
       frame_mode = 0;
       display_timer = 0;
     }
-
-    if(diag_toggle_primer== true){
-      switch(frame_mode){
-      case 0:
-        frame_mode = 5;
-        break;
-      case 1:
-      case 2:
-      case 3:
-      case 4:
-        frame_mode = 0;
-        break;
-      case 5:
-        frame_mode = 6;
-        break;
-      case 6:
-        frame_mode = 7;
-        break;
-      case 7:
-        frame_mode = 8;
-        break;
-      }
-
-      diag_toggle_primer=false;
-    }
-
-    //only stay in diag modes while holding button
-    if( frame_mode > 4 && (dpad & 0x0F) == 0x00){
-      frame_mode=0;
-    }
-
-    //toggle effects otherwise
-    if(frame_toggle_primer==true || millis()-frame_timer >( FRAMETIMEOUT >> animation_speed)){
-      switch(frame_mode){
-      case 1:
-        frame_mode = 2;
-        break;
-      case 2:
-        frame_mode = 1;
-        break;
-      case 3:
-        frame_mode = 4;
-        break;
-      case 4:
-        frame_mode = 3;
-        break;
-      }
-      frame_toggle_primer=false;
-      frame_timer =millis();
-    }
   }
-
-
-
   switch (frame_mode){
   case 5:
   case 0:  //EQ mode
@@ -2094,10 +2123,7 @@ void updatedisplay(){
   }
 
 
-
-
   //calculate indicator LEDs and related things
-
   byte gpio=0x00;
   //if not double tapped, determine LED1 and 2 below
   if (zc_doubletap_status !=3){
@@ -2229,9 +2255,12 @@ void updatedisplay(){
             break;
           case 1: //down left
             active_segment--;
-            if (active_segment <1){
+            if (active_segment < 1){
               active_segment=2;
               output_mode=7;
+            }
+            else  if (active_segment >2){
+              active_segment=1;
             }
             break; 
           case 2:  //left
@@ -2240,12 +2269,18 @@ void updatedisplay(){
               active_segment=2;
               output_mode=6;
             }
+            else if (active_segment >5){
+              active_segment=4;
+            }
             break;
           case 3: //up left
             active_segment--;
             if (active_segment <3){
               active_segment=4;
               output_mode=5;
+            }
+            else if (active_segment >5){
+              active_segment=4;
             }
             break;
           case 4: //up 
@@ -2260,12 +2295,18 @@ void updatedisplay(){
               active_segment=4;
               output_mode=3;
             }
+            else if (active_segment < 3){
+              active_segment=4;
+            }
             break;
           case 6: //right
             active_segment++;
             if (active_segment >5){
               active_segment=4;
               output_mode=2;
+            }
+            else if (active_segment <1){
+              active_segment=2;
             }
             break;
           case 7: //down right
@@ -2274,7 +2315,13 @@ void updatedisplay(){
               active_segment=1;
               output_mode=1;
             }
+            else if (active_segment < 1){
+              active_segment=2;
+            }
             break;
+          default:  //we shouldnt get here ever
+            active_segment=1;
+            output_mode=0;
           }
         }
         //mode flipping code
@@ -2331,4 +2378,3 @@ void updatedisplay(){
   fade = tempfade;
   suit_brightness = tempbrightness;
 }
-

@@ -1558,6 +1558,11 @@ void readserial(){
           last_set_brightness=serial1buffer[2]-127;
         } 
         else{
+          if (serial1buffer[1] == 0 && fade ==7){
+           effect_mode =8; 
+           output_mode =0;
+           effectbuffer_mode =0;
+          }
           fade = serial1buffer[1];
           last_set_fade=serial1buffer[1];
           Serial1.write(SET_FADE_BRIGHTNESS);

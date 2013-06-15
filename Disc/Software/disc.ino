@@ -310,7 +310,6 @@ void loop()
       digitalWrite(LIGHTS,LOW );
       if (g_array[0]+g_array[1]+g_array[2] <20){
         fade=7;
-        color=192;
       }
       else{
         color = readcolor();
@@ -457,12 +456,9 @@ void loop()
 
   //calculate Z 
   int z_relative = z_absolute - previous_z_absolute;
-
   z_filtered = z_filtered *.9 + z_relative ; 
 
-
   //calculate XY magnitude and angle and convert to LED range 0 -15
-
   xy_magnitude = (int)sqrt((long)x_relative*x_relative+(long)y_relative*y_relative);
   xy_filtered_magnitude = (int)sqrt((long)y_filtered*y_filtered+(long)x_filtered*x_filtered);
   xy_angle =  (int)(floor(((atan2(y_absolute,x_absolute) *2.54)+8.5))) % 16;
@@ -481,11 +477,13 @@ void loop()
           fade =0;
           instantspan = 0;
           brightness = 127;
+          color=192;
           for(magnitude=0; magnitude<10; magnitude++ ){
             updatearray();
             strip.showCompileTime<ClockPin, DataPin>(); 
             delay(50);
           }
+          
           z_latch = 0;
           currentmode=0;
         }

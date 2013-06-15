@@ -102,7 +102,7 @@ boolean beat_completed=false;
 unsigned int overlay_duration;
 unsigned long overlay_starting_time=0;
 byte overlay_mode=0;
-byte overlay_primer=0;
+byte overlay_event=0;
 
 //modes
 byte effectbuffer_mode = 0; //choose which buffer combination to display
@@ -113,7 +113,7 @@ byte suit_brightness=127;
 byte disc_brightness=127;
 byte fade=0;
 int color=0;  //the chosen color used for effects  0-383 is mapped to the color wheel  384 is white 385 is rainbow 512 is full white
-byte fade_primer=8;
+byte fade_event=8;
 
 int instantspan=0; //current span for effects set it to something between zero to span before calling wheel()
 int span=128;  //circle 0 128 256 384 512 mapped to 0 128 0 -128 0 
@@ -142,10 +142,10 @@ byte serial1bufferpointer = 0;
 
 
 
-boolean animation_primer = false; //up right
+boolean animation_event = false; //up right
 unsigned long animation_speedup_timer =0;
 
-boolean diag_primer = false; //down right
+boolean diag_event = false; //down right
 unsigned long ring_timer=0; //flash screen to ring for incoming message
 #define RINGTIMEOUT 1000  //time to flash for
 unsigned long display_timer=0;  //time we started displaying a frame at
@@ -360,12 +360,7 @@ void loop() {
   }
   fps++;
 
-  //reset flags
-  overlay_primer=0;
-  animation_speedup=0;
-
   readserial();     //read serial data
-
   nunchuk.update(); //read data from nunchuck
   nunchuckparse();  //filter inputs and set D-pad boolean mappings
 
@@ -373,6 +368,7 @@ void loop() {
   if (nunchuk.zButton == 0 && nunchuk.cButton == 0 ){
     input_processed=false;
     latch_flag = 0;   
+    animation_speedup=0;
   }
   //colors
   //effect_mode and output_mode settings
@@ -381,12 +377,12 @@ void loop() {
     if((dpad & 0x0F) != 0x00){
       //opening overlay pulse
       if(fade == 7 || effect_mode == 8){
-        overlay_primer = 4;
+        overlay_event = 4;
       }
       if (input_processed == false){ 
         //quick one time overlay pulse event to hide transitions
         if (fade!=7 && effect_mode !=8 && effect_mode !=7){
-          overlay_primer = 2;
+          overlay_event = 2;
         }
       }
       input_processed= true;       
@@ -427,7 +423,7 @@ void loop() {
 
     //single tap effect modes
     else { 
-      if(overlay_primer!=4){
+      if(overlay_event!=4){
         //reset buffer mode on effect changes
         if((dpad & 0x0F) != 0x00){
           effectbuffer_mode=0;
@@ -465,7 +461,7 @@ void loop() {
   if (cButtonDelayed  ){
     switch (dpad){
     case DPAD_LEFT:
-      color= 0; //red
+      color = 0; //red
       span = 0;
       break;
     case DPAD_RIGHT:
@@ -473,27 +469,27 @@ void loop() {
       span = 0;
       break;
     case DPAD_UP:
-      color= 256; //blue
+      color = 256; //blue
       span = 0;
       break;
     case DPAD_DOWN:
-      color= 385;//rainbow - special case
+      color = 385;//rainbow - special case
       span = 0;
       break;
     case DPAD_UP_LEFT:
-      color= 128;//green
+      color = 128;//green
       span = 0;
       break;
     case DPAD_DOWN_RIGHT:
-      color= 320;//purple
+      color = 320;//purple
       span = 0;
       break;
     case DPAD_UP_RIGHT:
-      color= 64;//yellow
+      color = 64;//yellow
       span = 0;
       break;
     case DPAD_DOWN_LEFT:
-      color= 384;//white - special case
+      color = 384;//white - special case
       span = 0;
       break;
     default:
@@ -501,7 +497,7 @@ void loop() {
         //color gesture
         color = gesture(color,colorrange);
         //wrap color to circle
-        color =(color+384) % 384;
+        color = (color+384) % 384;
       }
     }
   }
@@ -526,15 +522,15 @@ void loop() {
       }
       break;
     case DPAD_UP_LEFT:
-      overlay_primer = 3;
+      overlay_event = 3;
       if( input_processed == false){
 
-        fade_primer++;
+        fade_event++;
       }
       break;
     case DPAD_DOWN_RIGHT:
       if( input_processed == false){
-        diag_primer=true;
+        diag_event=true;
         display_timer =millis();
         display_timer_timeout = 5000;
       }
@@ -544,7 +540,7 @@ void loop() {
         display_timer =millis();
         display_timer_timeout = 60000;
         animation_speedup_timer = millis();
-        animation_primer=true;
+        animation_event=true;
       }
       if (millis()- animation_speedup_timer > 200){
         animation_speedup = 5;
@@ -552,9 +548,9 @@ void loop() {
       break;
     case DPAD_DOWN_LEFT:
       if( input_processed == false){
-        fade_primer--;
+        fade_event--;
       }
-      overlay_primer = 1;
+      overlay_event = 1;
       break;
     }
 
@@ -572,20 +568,20 @@ void loop() {
   }
 
   //adjust fade on combo release
-  if(fade_primer != 8){
+  if(fade_event != 8){
     //reset if stick is let go of
     if ((dpad & 0x0F) == 0x00){
-      fade_primer = 8;
+      fade_event = 8;
     }
     //wait for two fade down presses to start fading down
-    if (fade_primer == 6){
+    if (fade_event == 6){
       if (fade < 7) fade++; 
-      fade_primer = 7; //reset to 7 so one more press will adjust again
+      fade_event = 7; //reset to 7 so one more press will adjust again
     }
     //wait for two fade up presses to start fading down
-    else if(fade_primer == 10){
+    else if(fade_event == 10){
       if (fade > 0 ) fade--;
-      fade_primer =9; //reset to 9 so one more press will adjust again
+      fade_event =9; //reset to 9 so one more press will adjust again
     }
   }
 
@@ -1036,21 +1032,21 @@ void loop() {
     }
   }
 
-  if (overlay_primer!=0){ //code to start overlays
+  if (overlay_event!=0){ //code to start overlays
     //fadeout (Dpad down left)
-    if(overlay_primer == 1){
+    if(overlay_event == 1){
       if(nunchuk.accelX > 1000||nunchuk.accelY > 1000 ||nunchuk.accelZ > 1000){
         overlay_starting_time =millis();
         overlay_duration=500;
-        overlay_mode=overlay_primer;
+        overlay_mode=overlay_event;
       }
     }//fadeduring
-    else if(overlay_primer == 2){
+    else if(overlay_event == 2){
       overlay_starting_time =millis();
       overlay_duration=100;
-      overlay_mode=overlay_primer;
+      overlay_mode=overlay_event;
     }//fade to idle
-    else if(overlay_primer == 3){
+    else if(overlay_event == 3){
       if(nunchuk.accelX > 1000||nunchuk.accelY > 1000 ||nunchuk.accelZ > 1000){
         overlay_starting_time =millis();
         overlay_duration=500;
@@ -1058,18 +1054,19 @@ void loop() {
         output_mode=0;
         effectbuffer_mode=0;
         fade=0;
-        overlay_mode=overlay_primer;
+        overlay_mode=overlay_event;
       }
     }//fade to on
-    else if(overlay_primer == 4){
+    else if(overlay_event == 4){
       if(nunchuk.accelX > 1000||nunchuk.accelY > 1000 ||nunchuk.accelZ > 1000){
         overlay_starting_time =millis();
         overlay_duration=500;
         fade = 0;
         effect_mode=9;//put into a nonexitent mode to unlock from mode 8
-        overlay_mode=overlay_primer;
+        overlay_mode=overlay_event;
       } 
     }
+    overlay_event=0;
   }
 
   if(overlay_mode!=0){ //code to run during overlays
@@ -1559,9 +1556,9 @@ void readserial(){
         } 
         else{
           if (serial1buffer[1] == 0 && fade ==7){
-           effect_mode =8; 
-           output_mode =0;
-           effectbuffer_mode =0;
+            effect_mode =8; 
+            output_mode =0;
+            effectbuffer_mode =0;
           }
           fade = serial1buffer[1];
           last_set_fade=serial1buffer[1];
@@ -1629,9 +1626,10 @@ void readserial(){
         Serial2.write(CONFIRMED);
         {
           memcpy(frame2,&serial2buffer[1],sizeof(frame2));
-          display_timer=millis();
-          frame_advance_timer=display_timer;
-          frame_mode = 1;
+          display_timer =millis();
+          display_timer_timeout = 60000;
+          animation_event=true;
+
           //turn on to static mode full bright when disabled
           if (fade == 7){
             effect_mode=8;
@@ -1849,7 +1847,7 @@ void updatedisplay(){
   //if we are not in a dpad mode
   //display pure color or span while changing it
   //so I can see what I am doing
-  if(overlay_primer == 0){
+  if(overlay_event == 0){
     if ( zButtonDelayed == 1 && cButtonDelayed == 0){
       instantspan=SpanWheel(span);
       fade=0;
@@ -1905,7 +1903,7 @@ void updatedisplay(){
       }
     }
 
-    if(diag_primer == true){
+    if(diag_event == true){
       switch(frame_mode){
       case 0: //normal mode
         frame_mode = 5;
@@ -1953,11 +1951,11 @@ void updatedisplay(){
         frame_mode=5;
       }
       display_timer = millis();
-      diag_primer = false;
+      diag_event = false;
     }
 
     //toggle effects otherwise
-    if(animation_primer==true){
+    if(animation_event==true){
       switch(frame_mode){
       case 0: //texting 1
         frame_mode = 1;
@@ -1978,12 +1976,12 @@ void updatedisplay(){
         frame_mode = 1;
       }
       frame_advance_timer = millis();
-      animation_primer = false;
+      animation_event = false;
     }
     //self priming for animation
     if(frame_mode==1 ||frame_mode==2 ||frame_mode==3 || frame_mode==4){
       if ((millis()- frame_advance_timer) > (ANIMATION_SPEED >> animation_speedup)){
-        animation_primer=true;
+        animation_event=true;
       }
     }
     //forced nyan entry
@@ -2144,7 +2142,7 @@ void updatedisplay(){
     //LED2 Z button status
     if (nunchuk.zButton){
       //if overlay is primed, blink led2
-      if (overlay_primer != 0 ||(auto_pump_mode != 0 && DPAD_DOWN)){
+      if (overlay_event != 0 ||(auto_pump_mode != 0 && DPAD_DOWN)){
         if((millis()  >> 8) & 0x01 ){
           bitSet(gpio,1);
         }
@@ -2164,10 +2162,17 @@ void updatedisplay(){
   }
 
   //LED3 - dpad status
+
   if (dpad & 0x0F){
     bitSet(gpio,2);
   }
-
+  else {
+    if (output_mode ==1 || output_mode ==3 || output_mode ==5 || output_mode ==7 ){
+      if((millis()  >> 8) & 0x01 ){ 
+        bitSet(gpio,2);
+      }
+    }
+  }
   //LED4 - motion status
 
   //idle mode
@@ -2241,7 +2246,7 @@ void updatedisplay(){
         else{
           //60 is minimum bpm
           bpm_period = constrain(bpm_period,200,1000);
-          
+
           //filter the bpm
           bpm_period = bpm_period * .5 + (millis()-bpm_starting_time) *.5;
           bpm_starting_time= millis(); 
@@ -2381,3 +2386,8 @@ void updatedisplay(){
   fade = tempfade;
   suit_brightness = tempbrightness;
 }
+
+
+
+
+

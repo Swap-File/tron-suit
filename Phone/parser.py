@@ -88,6 +88,28 @@ while True:
 					expandedMatches.append(item[0]+item[0]+item[1]+item[1]+item[2]+item[2])
 				else:
 					expandedMatches.append(item)
+			
+			#if no hex color codes in message fall back to named colors
+			if (len(expandedMatches) == 0):
+				for item in re.findall( r'\bred\b|\borange\b|\byellow\b|\bgreen\b|\bgreen\b|\bviolet\b|\bpurple\b|\bcyan\b|\bmagenta\b', body.lower()):
+					if 'red' in item:
+						expandedMatches.append('FF0000')
+					elif 'orange' in item:
+						expandedMatches.append('FF6000')
+					elif 'yellow' in item:
+						expandedMatches.append('FFFF00')
+					elif 'green' in item:
+						expandedMatches.append('00FF00')
+					elif 'blue' in item:
+						expandedMatches.append('0000FF')
+					elif 'violet' in item:
+						expandedMatches.append('FF00FF')
+					elif 'purple' in item:
+						expandedMatches.append('FF00FF')
+					elif 'cyan' in item:
+						expandedMatches.append('00FFFF')
+					elif 'magenta' in item:
+						expandedMatches.append('FF00FF')
 					
 			#convert hex codes to groups of RGB ints
 			colorDegrees = []

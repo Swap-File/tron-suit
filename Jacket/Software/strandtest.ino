@@ -91,7 +91,8 @@ int rainbowoffset = 383;
 //accelerometer values
 unsigned int xtilt;
 unsigned int ytilt;
-
+byte ytilt_one_way=0;
+unsigned long ytilt_one_way_timer=0;
 //keeps track of how long its been since last pump, and blinks indicator if its been "too" long
 
 #define fistpump 2000  //2 second alarm time
@@ -171,7 +172,9 @@ boolean zButtonLast = false;
 unsigned long cButtonTimer;
 unsigned long zButtonTimer;
 unsigned long dpadTimer;
+
 //stick data
+unsigned long nunchuk_polling_timer=0;
 byte dpad_previous = 0x00; 
 byte dpad = 0x00;
 //dpad masks
@@ -268,7 +271,7 @@ void setup() {
 void loop() {
 
   //save data to eeprom every minute, should last 70 days before hitting wear limit
-  //I'll manually wear level if needed, there is 4k of eeprom on a mega, and im saving 8 bytes
+  //I'll manually wear level if needed, there is 4k of eeprom on a mega, and im only saving 8 bytes
 
   //only save one byte each cycle if the eeprom is ready so as not to impact frame rate.
   //we run at about 60 FPS (14ms per frame) so as long as we only save one byte per cycle we are fine
@@ -349,21 +352,25 @@ void loop() {
     last_set_brightness=128; //set to impossible value to force sending first time
     last_set_fade=8;  //set to impossible value to force sending first time
     disc_voltage=0;
-
   }
 
   if (millis() - fps_time > 1000){
     fps_last = fps;
-    Serial.println(fps);
     fps=0;
     fps_time=millis();
   }
   fps++;
 
   readserial();     //read serial data
-  nunchuk.update(); //read data from nunchuck
-  nunchuckparse();  //filter inputs and set D-pad boolean mappings
 
+  //nunchuk's dont like to be flooded with requests for data
+  //in some high FPS effect modes this needs to slow down polling
+  if (millis()-nunchuk_polling_timer > 20){
+    nunchuk.update(); //read data from nunchuk
+    nunchuk_polling_timer=millis();
+  }
+
+  nunchuckparse();  //filter inputs and set D-pad boolean mappings 
   //reset variables for monitoring buttons
   if (nunchuk.zButton == 0 && nunchuk.cButton == 0 ){
     input_processed=false;
@@ -425,9 +432,6 @@ void loop() {
     else { 
       if(overlay_event!=4){
         //reset buffer mode on effect changes
-        if((dpad & 0x0F) != 0x00){
-          effectbuffer_mode=0;
-        }
         switch (dpad){
         case DPAD_LEFT:
           effect_mode =2;
@@ -463,34 +467,42 @@ void loop() {
     case DPAD_LEFT:
       color = 0; //red
       span = 0;
+      effectbuffer_mode=0;
       break;
     case DPAD_RIGHT:
       color=192; //cyan
       span = 0;
+      effectbuffer_mode=0;
       break;
     case DPAD_UP:
       color = 256; //blue
       span = 0;
+      effectbuffer_mode=0;
       break;
     case DPAD_DOWN:
       color = 385;//rainbow - special case
       span = 0;
+      effectbuffer_mode=0;
       break;
     case DPAD_UP_LEFT:
       color = 128;//green
       span = 0;
+      effectbuffer_mode=0;
       break;
     case DPAD_DOWN_RIGHT:
       color = 320;//purple
       span = 0;
+      effectbuffer_mode=0;
       break;
     case DPAD_UP_RIGHT:
       color = 64;//yellow
       span = 0;
+      effectbuffer_mode=0;
       break;
     case DPAD_DOWN_LEFT:
       color = 384;//white - special case
       span = 0;
+      effectbuffer_mode=0;
       break;
     default:
       if (color < 384){  
@@ -890,62 +902,57 @@ void loop() {
     suit_brightness = map(ytilt, 0, 254,0, 127);
 
     instantspan =  map(suit_brightness,0,127,SpanWheel(span),0);
-    for( i=0; i<strip_buffer_2.numPixels(); i++)     {
-      strip_buffer_2.setPixelColor(i,  Wheel(color));
-    }
+    for( i=0; i<strip_buffer_2.numPixels(); i++) strip_buffer_2.setPixelColor(i,  Wheel(color));
 
     instantspan =  map(suit_brightness,0,127,0,SpanWheel(span));
-    for( i=0; i<strip_buffer_1.numPixels(); i++)     {
-      strip_buffer_1.setPixelColor(i,  Wheel(color));
-    }
+    for( i=0; i<strip_buffer_1.numPixels(); i++) strip_buffer_1.setPixelColor(i,  Wheel(color));
   }
   else if (effect_mode == 3){
     suit_brightness=127;
     byte tempytilt = map(ytilt, 0, 254,0, 20);
 
     instantspan =  map(tempytilt,0,20,SpanWheel(span),0);
-    for( i=0; i<tempytilt; i++)   {
-      strip_buffer_2.setPixelColor(i,  Wheel(color));
-    }
+    for(i=0; i<tempytilt; i++) strip_buffer_2.setPixelColor(i,  Wheel(color));
     for(int i=tempytilt; i<strip_buffer_2.numPixels(); i++) strip_buffer_2.setPixelColor(i, 0);
 
     instantspan =  map(tempytilt,0,20,0,SpanWheel(span));
-    for( i=0; i<tempytilt; i++)   {
-      strip_buffer_1.setPixelColor(i,  Wheel(color));
-    }
+    for( i=0; i<tempytilt; i++) strip_buffer_1.setPixelColor(i,  Wheel(color));
     for(int i=tempytilt; i<strip_buffer_1.numPixels(); i++) strip_buffer_1.setPixelColor(i, 0);
 
   }
   else if (effect_mode == 4){
-    suit_brightness=127;
+    suit_brightness=127;    
+    byte tempytilt = map(ytilt, 0, 254,0, 20);
 
-    byte tempytilt = map(ytilt, 0, 254,0, 40);
-    instantspan =  map(tempytilt,0,40,SpanWheel(span),0);
-    if (tempytilt < 21){
-      for( i=0; i<tempytilt; i++)  strip_buffer_2.setPixelColor(i, Wheel(color));
+    if(beat_completed==false){
+      //light up
+      instantspan =  map(tempytilt,0,20,SpanWheel(span),0);
+      for( i=0; i<tempytilt; i++) strip_buffer_2.setPixelColor(i,  Wheel(color));
       for(int i=tempytilt; i<strip_buffer_2.numPixels(); i++) strip_buffer_2.setPixelColor(i, 0);
-    }
-    else{
-      tempytilt = tempytilt -21;
-      for( i=20; i>tempytilt; i--)  strip_buffer_2.setPixelColor(i,Wheel(color));
-      for(int i=tempytilt; i>-1; i--) strip_buffer_2.setPixelColor(i, 0);
-    }
 
-    tempytilt = map(ytilt, 0, 254,0, 40);
-    instantspan =  map(tempytilt,0,40,0,SpanWheel(span));
-    if (tempytilt < 21){
-      for( i=0; i<tempytilt; i++)  strip_buffer_1.setPixelColor(i, Wheel(color));
+      instantspan =  map(tempytilt,0,20,0,SpanWheel(span));
+      for( i=0; i<tempytilt; i++) strip_buffer_1.setPixelColor(i,  Wheel(color));
       for(int i=tempytilt; i<strip_buffer_1.numPixels(); i++) strip_buffer_1.setPixelColor(i, 0);
     }
     else{
-      tempytilt = tempytilt -21;
-      for( i=20; i>tempytilt; i--)  strip_buffer_1.setPixelColor(i,Wheel(color));
-      for(int i=tempytilt; i>-1; i--) strip_buffer_1.setPixelColor(i, 0);
-    }
+      //fade out
+      instantspan =  0;
+      for(int i=0; i<tempytilt; i++){
+        suit_brightness = map(abs(tempytilt-i),0,21,127,0); //21 so the last LED doesnt go out
+        suit_brightness= map(constrain(millis()-ytilt_one_way_timer,0,100),0,100,suit_brightness,0);
+        strip_buffer_2.setPixelColor(i,  Wheel(color));
+      }
 
+      instantspan =  SpanWheel(span);
+      for(int i=0; i<tempytilt; i++){
+        suit_brightness = map(abs(tempytilt-i),0,21,127,0); //21 so the last LED doesnt go out
+        suit_brightness= map(constrain(millis()-ytilt_one_way_timer,0,100),0,100,suit_brightness,0);
+        strip_buffer_1.setPixelColor(i,  Wheel(color));
+      }
+    }
   }
-  else if (effect_mode ==5){
-    suit_brightness=127;
+  else if (effect_mode == 5){   
+    suit_brightness = 127;
     byte tempytilt = map(ytilt, 0,254,0, 21);
 
     for( i=0; i<strip_buffer_2.numPixels(); i++) strip_buffer_2.setPixelColor(i, 0);
@@ -958,19 +965,21 @@ void loop() {
   }
   else if (effect_mode == 6){
     suit_brightness=127;
-    for( i=0; i<strip_buffer_1.numPixels(); i++) strip_buffer_1.setPixelColor(i, Wheel(color));
-    for( i=0; i<strip_buffer_2.numPixels(); i++) strip_buffer_2.setPixelColor(i, Wheel(color));
-    byte tempytilt = map(ytilt, 0, 254,0, 23);
 
-    instantspan =  map(tempytilt,0,21,SpanWheel(span),0);
-    if (tempytilt < 21 and tempytilt >0)  strip_buffer_2.setPixelColor(tempytilt-1, 0);
-    if (tempytilt < 22 and tempytilt >1)  strip_buffer_2.setPixelColor(tempytilt-2, 0);
-    if (tempytilt < 23 and tempytilt >2)  strip_buffer_2.setPixelColor(tempytilt-3, 0);
+    int tempytilt = map(ytilt, 0, 254,0, 21)-1;
 
-    instantspan =  map(tempytilt,0,21,0,SpanWheel(span));
-    if (tempytilt < 21 and tempytilt >0)  strip_buffer_1.setPixelColor(tempytilt-1, 0);
-    if (tempytilt < 22 and tempytilt >1)  strip_buffer_1.setPixelColor(tempytilt-2, 0);
-    if (tempytilt < 23 and tempytilt >2)  strip_buffer_1.setPixelColor(tempytilt-3, 0);
+    for( i=0; i<strip_buffer_2.numPixels(); i++) {
+      suit_brightness = map(abs(tempytilt-i),0,19,0,127);
+      instantspan = map(tempytilt,-1,20,SpanWheel(span),0);
+      strip_buffer_2.setPixelColor(i, Wheel(color));
+    }
+
+    for( i=0; i<strip_buffer_1.numPixels(); i++){
+      suit_brightness = map(abs(tempytilt-i),0,19,0,127);
+      instantspan =  map(tempytilt,-1,20,0,SpanWheel(span));
+      strip_buffer_1.setPixelColor(i, Wheel(color));
+    }
+
 
   }
   else if (effect_mode == 7){
@@ -1780,8 +1789,21 @@ void nunchuckparse(){
     ytilt = yfilter.process(nunchuk.accelY);
     ytilt = constrain(ytilt, 500, 600);
     ytilt = map(ytilt, 500, 600,0, 254);
-
   }
+
+  if (ytilt == 0){
+    if (ytilt_one_way != 0){
+      ytilt_one_way_timer = millis();
+    }
+    ytilt_one_way = 0;
+  }
+  else if (ytilt == 254){
+    if (ytilt_one_way != 254){
+      ytilt_one_way_timer = millis();
+    }
+  }
+  ytilt_one_way = max(ytilt_one_way,ytilt);  
+
 }
 
 void sendserial(){
@@ -2386,8 +2408,3 @@ void updatedisplay(){
   fade = tempfade;
   suit_brightness = tempbrightness;
 }
-
-
-
-
-

@@ -725,321 +725,340 @@ void loop() {
 
 
   //generate effects array based on mode
-  if(effect_mode == 0){
-    auto_pump_mode=0;
 
-    //buffer modes 3 and 4 are ugly with effect 0 so force switch it
-    if (effectbuffer_mode == 3 || effectbuffer_mode == 4){
-      effectbuffer_mode = 2;
-    }
+  switch (effect_mode){
+  case 0:
+    {
+      auto_pump_mode=0;
 
-    averagespan =0;
+      //buffer modes 3 and 4 are ugly with effect 0 so force switch it
+      if (effectbuffer_mode == 3 || effectbuffer_mode == 4){
+        effectbuffer_mode = 2;
+      }
 
-    for(int i=0; i<6; i++){
-      suit_brightness = map(spectrumValue[i],spectrumValueMin[i] ,spectrumValueMax[i],0,127); 
-      if(i==5){
-        if (suit_brightness > 63){
-          instantspan =  map(suit_brightness,64,127,0,SpanWheel(span));
-          averagespan = averagespan + instantspan;
-          strip_buffer_1.setPixelColor(9,  Wheel(color));
-          strip_buffer_1.setPixelColor(10,  Wheel(color));
-          instantspan= map(suit_brightness,64,127,SpanWheel(span),0);
-          strip_buffer_2.setPixelColor(9,  Wheel(color));
-          strip_buffer_2.setPixelColor(10,  Wheel(color));
+      averagespan =0;
+
+      for(int i=0; i<6; i++){
+        suit_brightness = map(spectrumValue[i],spectrumValueMin[i] ,spectrumValueMax[i],0,127); 
+        if(i==5){
+          if (suit_brightness > 63){
+            instantspan =  map(suit_brightness,64,127,0,SpanWheel(span));
+            averagespan = averagespan + instantspan;
+            strip_buffer_1.setPixelColor(9,  Wheel(color));
+            strip_buffer_1.setPixelColor(10,  Wheel(color));
+            instantspan= map(suit_brightness,64,127,SpanWheel(span),0);
+            strip_buffer_2.setPixelColor(9,  Wheel(color));
+            strip_buffer_2.setPixelColor(10,  Wheel(color));
+          }
+          else{
+            instantspan =0;
+            strip_buffer_1.setPixelColor(9,  Wheel(color));
+            strip_buffer_1.setPixelColor(10,  Wheel(color));
+            instantspan= SpanWheel(span);
+            strip_buffer_2.setPixelColor(9,  Wheel(color));
+            strip_buffer_2.setPixelColor(10,  Wheel(color));
+          }
         }
         else{
-          instantspan =0;
-          strip_buffer_1.setPixelColor(9,  Wheel(color));
-          strip_buffer_1.setPixelColor(10,  Wheel(color));
-          instantspan= SpanWheel(span);
-          strip_buffer_2.setPixelColor(9,  Wheel(color));
-          strip_buffer_2.setPixelColor(10,  Wheel(color));
+          if (suit_brightness > 63){
+            instantspan =  map(suit_brightness,64,127,0,SpanWheel(span));
+            averagespan = averagespan + instantspan;
+            strip_buffer_1.setPixelColor(2*i,  Wheel(color));
+            strip_buffer_1.setPixelColor(19-2*i,  Wheel(color));
+            instantspan= map(suit_brightness,64,127,SpanWheel(span),0);
+            strip_buffer_2.setPixelColor(2*i,  Wheel(color));
+            strip_buffer_2.setPixelColor(19-2*i,  Wheel(color));
+          }
+          else{
+            instantspan =0;
+            strip_buffer_1.setPixelColor(2*i,  Wheel(color));
+            strip_buffer_1.setPixelColor(19-2*i,  Wheel(color));
+            instantspan= SpanWheel(span);
+            strip_buffer_2.setPixelColor(2*i,  Wheel(color));
+            strip_buffer_2.setPixelColor(19-2*i,  Wheel(color));
+          }
+        }
+        if (i<4){
+          suit_brightness = map((spectrumValue[i+1] + spectrumValue[i]) >> 1,(spectrumValueMin[i] + spectrumValueMin[i+1]) >> 1 ,(spectrumValueMax[i] + spectrumValueMax[i+1]) >> 1,0,127); 
+          if (suit_brightness > 63){
+            instantspan =  map(suit_brightness,64,127,0,SpanWheel(span));
+            averagespan = averagespan + instantspan;
+            strip_buffer_1.setPixelColor(19-(2*i+1),  Wheel(color));
+            strip_buffer_1.setPixelColor(2*i+1,  Wheel(color));
+            instantspan= map(suit_brightness,64,127,SpanWheel(span),0);
+            strip_buffer_2.setPixelColor(19-(2*i+1),  Wheel(color));
+            strip_buffer_2.setPixelColor(2*i+1,  Wheel(color));
+          }
+          else{
+            instantspan =0;
+            strip_buffer_1.setPixelColor(19-(2*i+1),  Wheel(color));
+            strip_buffer_1.setPixelColor(2*i+1,  Wheel(color));
+            instantspan= SpanWheel(span);
+            strip_buffer_2.setPixelColor(19-(2*i+1),  Wheel(color));
+            strip_buffer_2.setPixelColor(2*i+1,  Wheel(color));
+          }
         }
       }
-      else{
-        if (suit_brightness > 63){
-          instantspan =  map(suit_brightness,64,127,0,SpanWheel(span));
-          averagespan = averagespan + instantspan;
-          strip_buffer_1.setPixelColor(2*i,  Wheel(color));
-          strip_buffer_1.setPixelColor(19-2*i,  Wheel(color));
-          instantspan= map(suit_brightness,64,127,SpanWheel(span),0);
-          strip_buffer_2.setPixelColor(2*i,  Wheel(color));
-          strip_buffer_2.setPixelColor(19-2*i,  Wheel(color));
-        }
-        else{
-          instantspan =0;
-          strip_buffer_1.setPixelColor(2*i,  Wheel(color));
-          strip_buffer_1.setPixelColor(19-2*i,  Wheel(color));
-          instantspan= SpanWheel(span);
-          strip_buffer_2.setPixelColor(2*i,  Wheel(color));
-          strip_buffer_2.setPixelColor(19-2*i,  Wheel(color));
-        }
+      break;
+    }
+  case 1:
+    {
+      auto_pump_mode=0;
+
+      //buffer modes 3 and 4 are ugly with effect 0 so force switch it
+      if (effectbuffer_mode == 3 || effectbuffer_mode == 4){
+        effectbuffer_mode = 2;
       }
-      if (i<4){
-        suit_brightness = map((spectrumValue[i+1] + spectrumValue[i]) >> 1,(spectrumValueMin[i] + spectrumValueMin[i+1]) >> 1 ,(spectrumValueMax[i] + spectrumValueMax[i+1]) >> 1,0,127); 
-        if (suit_brightness > 63){
-          instantspan =  map(suit_brightness,64,127,0,SpanWheel(span));
-          averagespan = averagespan + instantspan;
-          strip_buffer_1.setPixelColor(19-(2*i+1),  Wheel(color));
-          strip_buffer_1.setPixelColor(2*i+1,  Wheel(color));
-          instantspan= map(suit_brightness,64,127,SpanWheel(span),0);
-          strip_buffer_2.setPixelColor(19-(2*i+1),  Wheel(color));
-          strip_buffer_2.setPixelColor(2*i+1,  Wheel(color));
-        }
-        else{
-          instantspan =0;
-          strip_buffer_1.setPixelColor(19-(2*i+1),  Wheel(color));
-          strip_buffer_1.setPixelColor(2*i+1,  Wheel(color));
-          instantspan= SpanWheel(span);
-          strip_buffer_2.setPixelColor(19-(2*i+1),  Wheel(color));
-          strip_buffer_2.setPixelColor(2*i+1,  Wheel(color));
-        }
-      }
-    }
-  }
-  else if(effect_mode == 1){
-    auto_pump_mode=0;
 
-    //buffer modes 3 and 4 are ugly with effect 0 so force switch it
-    if (effectbuffer_mode == 3 || effectbuffer_mode == 4){
-      effectbuffer_mode = 2;
-    }
+      averagespan =0;
 
-    averagespan =0;
-
-    suit_brightness = map(spectrumValue[0]*.3,spectrumValueMin[0]*.3,spectrumValueMax[0]*.3,0,127); 
-    if (suit_brightness > 63){
-      instantspan =  map(suit_brightness,64,127,SpanWheel(span),0);
-    }
-    strip_buffer_2.setPixelColor(0,  Wheel(color));
-    if (suit_brightness > 63){
-      instantspan =  map(suit_brightness,64,127,0,SpanWheel(span));
-      averagespan = averagespan + instantspan;
-    }
-    strip_buffer_1.setPixelColor(0,  Wheel(color));
-
-    suit_brightness = map(spectrumValue[0]*.6,spectrumValueMin[0]*.6,spectrumValueMax[0]*.6,0,127); 
-    if (suit_brightness > 63){
-      instantspan =  map(suit_brightness,64,127,SpanWheel(span),0);
-    }
-    strip_buffer_2.setPixelColor(1,  Wheel(color));
-    if (suit_brightness > 63){
-      instantspan =  map(suit_brightness,64,127,0,SpanWheel(span));
-      averagespan = averagespan + instantspan;
-    }
-    strip_buffer_1.setPixelColor(1,  Wheel(color));
-
-    for(int i=0; i<5; i++)   {
-      suit_brightness = map(spectrumValue[i],spectrumValueMin[i] ,spectrumValueMax[i],0,127); 
+      suit_brightness = map(spectrumValue[0]*.3,spectrumValueMin[0]*.3,spectrumValueMax[0]*.3,0,127); 
       if (suit_brightness > 63){
         instantspan =  map(suit_brightness,64,127,SpanWheel(span),0);
       }
-      strip_buffer_2.setPixelColor(i*3+2,  Wheel(color));
+      strip_buffer_2.setPixelColor(0,  Wheel(color));
       if (suit_brightness > 63){
         instantspan =  map(suit_brightness,64,127,0,SpanWheel(span));
         averagespan = averagespan + instantspan;
       }
-      strip_buffer_1.setPixelColor(i*3+2,  Wheel(color));
+      strip_buffer_1.setPixelColor(0,  Wheel(color));
 
-      suit_brightness = map(spectrumValue[i+1] * .3 + spectrumValue[i] * .6,spectrumValueMin[i] * .6+ spectrumValueMin[i+1] * .3 ,spectrumValueMax[i] *.6 + spectrumValueMax[i+1] * .3,0,127); 
+      suit_brightness = map(spectrumValue[0]*.6,spectrumValueMin[0]*.6,spectrumValueMax[0]*.6,0,127); 
       if (suit_brightness > 63){
         instantspan =  map(suit_brightness,64,127,SpanWheel(span),0);
       }
-      strip_buffer_2.setPixelColor(i*3+3,  Wheel(color));
+      strip_buffer_2.setPixelColor(1,  Wheel(color));
       if (suit_brightness > 63){
         instantspan =  map(suit_brightness,64,127,0,SpanWheel(span));
         averagespan = averagespan + instantspan;
       }
-      strip_buffer_1.setPixelColor(i*3+3,  Wheel(color));
+      strip_buffer_1.setPixelColor(1,  Wheel(color));
 
-      suit_brightness = map(spectrumValue[i+1] * .6 + spectrumValue[i] * .3,spectrumValueMin[i] * .3+ spectrumValueMin[i+1] * .6 ,spectrumValueMax[i] *.3 + spectrumValueMax[i+1] * .6,0,127); 
+      for(int i=0; i<5; i++)   {
+        suit_brightness = map(spectrumValue[i],spectrumValueMin[i] ,spectrumValueMax[i],0,127); 
+        if (suit_brightness > 63){
+          instantspan =  map(suit_brightness,64,127,SpanWheel(span),0);
+        }
+        strip_buffer_2.setPixelColor(i*3+2,  Wheel(color));
+        if (suit_brightness > 63){
+          instantspan =  map(suit_brightness,64,127,0,SpanWheel(span));
+          averagespan = averagespan + instantspan;
+        }
+        strip_buffer_1.setPixelColor(i*3+2,  Wheel(color));
+
+        suit_brightness = map(spectrumValue[i+1] * .3 + spectrumValue[i] * .6,spectrumValueMin[i] * .6+ spectrumValueMin[i+1] * .3 ,spectrumValueMax[i] *.6 + spectrumValueMax[i+1] * .3,0,127); 
+        if (suit_brightness > 63){
+          instantspan =  map(suit_brightness,64,127,SpanWheel(span),0);
+        }
+        strip_buffer_2.setPixelColor(i*3+3,  Wheel(color));
+        if (suit_brightness > 63){
+          instantspan =  map(suit_brightness,64,127,0,SpanWheel(span));
+          averagespan = averagespan + instantspan;
+        }
+        strip_buffer_1.setPixelColor(i*3+3,  Wheel(color));
+
+        suit_brightness = map(spectrumValue[i+1] * .6 + spectrumValue[i] * .3,spectrumValueMin[i] * .3+ spectrumValueMin[i+1] * .6 ,spectrumValueMax[i] *.3 + spectrumValueMax[i+1] * .6,0,127); 
+        if (suit_brightness > 63){
+          instantspan =  map(suit_brightness,64,127,SpanWheel(span),0);
+        }
+        strip_buffer_2.setPixelColor(i*3+4,  Wheel(color));
+        if (suit_brightness > 63){
+          instantspan =  map(suit_brightness,64,127,0,SpanWheel(span));
+          averagespan = averagespan + instantspan;
+        }
+        strip_buffer_1.setPixelColor(i*3+4,  Wheel(color));
+
+      }
+      suit_brightness = map(spectrumValue[5],spectrumValueMin[5] ,spectrumValueMax[5],0,127); 
       if (suit_brightness > 63){
         instantspan =  map(suit_brightness,64,127,SpanWheel(span),0);
       }
-      strip_buffer_2.setPixelColor(i*3+4,  Wheel(color));
+      strip_buffer_2.setPixelColor(17,  Wheel(color));
       if (suit_brightness > 63){
         instantspan =  map(suit_brightness,64,127,0,SpanWheel(span));
         averagespan = averagespan + instantspan;
       }
-      strip_buffer_1.setPixelColor(i*3+4,  Wheel(color));
+      strip_buffer_1.setPixelColor(17,  Wheel(color));
 
+      suit_brightness = map(spectrumValue[5]*.6,spectrumValueMin[5]*.6,spectrumValueMax[5]*.6,0,127); 
+      if (suit_brightness > 63){
+        instantspan =  map(suit_brightness,64,127,SpanWheel(span),0);
+      }
+      strip_buffer_2.setPixelColor(18,  Wheel(color));
+      if (suit_brightness > 63){
+        instantspan =  map(suit_brightness,64,127,0,SpanWheel(span));
+        averagespan = averagespan + instantspan;
+      }
+      strip_buffer_1.setPixelColor(18,  Wheel(color));
+
+      suit_brightness = map(spectrumValue[5]*.3,spectrumValueMin[5]*.3,spectrumValueMax[5]*.3,0,127); 
+      if (suit_brightness > 63){
+        instantspan =  map(suit_brightness,64,127,SpanWheel(span),0);
+      }
+      strip_buffer_2.setPixelColor(19,  Wheel(color));
+      if (suit_brightness > 63){
+        instantspan =  map(suit_brightness,64,127,0,SpanWheel(span));
+        averagespan = averagespan + instantspan;
+      }
+      strip_buffer_1.setPixelColor(19,  Wheel(color));
+      break;
     }
-    suit_brightness = map(spectrumValue[5],spectrumValueMin[5] ,spectrumValueMax[5],0,127); 
-    if (suit_brightness > 63){
-      instantspan =  map(suit_brightness,64,127,SpanWheel(span),0);
+  case 2:
+    {
+      suit_brightness = map(ytilt, 0, 254,0, 127);
+
+      instantspan =  map(suit_brightness,0,127,SpanWheel(span),0);
+      for( i=0; i<strip_buffer_2.numPixels(); i++) strip_buffer_2.setPixelColor(i,  Wheel(color));
+
+      instantspan =  map(suit_brightness,0,127,0,SpanWheel(span));
+      for( i=0; i<strip_buffer_1.numPixels(); i++) strip_buffer_1.setPixelColor(i,  Wheel(color));
+      break;
     }
-    strip_buffer_2.setPixelColor(17,  Wheel(color));
-    if (suit_brightness > 63){
-      instantspan =  map(suit_brightness,64,127,0,SpanWheel(span));
-      averagespan = averagespan + instantspan;
-    }
-    strip_buffer_1.setPixelColor(17,  Wheel(color));
+  case 3:
+    {
+      suit_brightness=127;
+      byte tempytilt = map(ytilt, 0, 254,0, 20);
 
-    suit_brightness = map(spectrumValue[5]*.6,spectrumValueMin[5]*.6,spectrumValueMax[5]*.6,0,127); 
-    if (suit_brightness > 63){
-      instantspan =  map(suit_brightness,64,127,SpanWheel(span),0);
-    }
-    strip_buffer_2.setPixelColor(18,  Wheel(color));
-    if (suit_brightness > 63){
-      instantspan =  map(suit_brightness,64,127,0,SpanWheel(span));
-      averagespan = averagespan + instantspan;
-    }
-    strip_buffer_1.setPixelColor(18,  Wheel(color));
-
-    suit_brightness = map(spectrumValue[5]*.3,spectrumValueMin[5]*.3,spectrumValueMax[5]*.3,0,127); 
-    if (suit_brightness > 63){
-      instantspan =  map(suit_brightness,64,127,SpanWheel(span),0);
-    }
-    strip_buffer_2.setPixelColor(19,  Wheel(color));
-    if (suit_brightness > 63){
-      instantspan =  map(suit_brightness,64,127,0,SpanWheel(span));
-      averagespan = averagespan + instantspan;
-    }
-    strip_buffer_1.setPixelColor(19,  Wheel(color));
-  }
-
-  else if (effect_mode == 2){
-    suit_brightness = map(ytilt, 0, 254,0, 127);
-
-    instantspan =  map(suit_brightness,0,127,SpanWheel(span),0);
-    for( i=0; i<strip_buffer_2.numPixels(); i++) strip_buffer_2.setPixelColor(i,  Wheel(color));
-
-    instantspan =  map(suit_brightness,0,127,0,SpanWheel(span));
-    for( i=0; i<strip_buffer_1.numPixels(); i++) strip_buffer_1.setPixelColor(i,  Wheel(color));
-  }
-  else if (effect_mode == 3){
-    suit_brightness=127;
-    byte tempytilt = map(ytilt, 0, 254,0, 20);
-
-    instantspan =  map(tempytilt,0,20,SpanWheel(span),0);
-    for(i=0; i<tempytilt; i++) strip_buffer_2.setPixelColor(i,  Wheel(color));
-    for(int i=tempytilt; i<strip_buffer_2.numPixels(); i++) strip_buffer_2.setPixelColor(i, 0);
-
-    instantspan =  map(tempytilt,0,20,0,SpanWheel(span));
-    for( i=0; i<tempytilt; i++) strip_buffer_1.setPixelColor(i,  Wheel(color));
-    for(int i=tempytilt; i<strip_buffer_1.numPixels(); i++) strip_buffer_1.setPixelColor(i, 0);
-
-  }
-  else if (effect_mode == 4){
-    suit_brightness=127;    
-    byte tempytilt = map(ytilt, 0, 254,0, 20);
-
-    if(beat_completed==false){
-      //light up
       instantspan =  map(tempytilt,0,20,SpanWheel(span),0);
-      for( i=0; i<tempytilt; i++) strip_buffer_2.setPixelColor(i,  Wheel(color));
+      for(i=0; i<tempytilt; i++) strip_buffer_2.setPixelColor(i,  Wheel(color));
       for(int i=tempytilt; i<strip_buffer_2.numPixels(); i++) strip_buffer_2.setPixelColor(i, 0);
 
       instantspan =  map(tempytilt,0,20,0,SpanWheel(span));
       for( i=0; i<tempytilt; i++) strip_buffer_1.setPixelColor(i,  Wheel(color));
       for(int i=tempytilt; i<strip_buffer_1.numPixels(); i++) strip_buffer_1.setPixelColor(i, 0);
-    }
-    else{
-      //fade out
-      instantspan =  0;
-      for(int i=0; i<tempytilt; i++){
-        suit_brightness = map(abs(tempytilt-i),0,21,127,0); //21 so the last LED doesnt go out
-        suit_brightness= map(constrain(millis()-ytilt_one_way_timer,0,100),0,100,suit_brightness,0);
-        strip_buffer_2.setPixelColor(i,  Wheel(color));
-      }
-
-      instantspan =  SpanWheel(span);
-      for(int i=0; i<tempytilt; i++){
-        suit_brightness = map(abs(tempytilt-i),0,21,127,0); //21 so the last LED doesnt go out
-        suit_brightness= map(constrain(millis()-ytilt_one_way_timer,0,100),0,100,suit_brightness,0);
-        strip_buffer_1.setPixelColor(i,  Wheel(color));
-      }
-    }
-  }
-  else if (effect_mode == 5){   
-    suit_brightness = 127;
-    byte tempytilt = map(ytilt, 0,254,0, 21);
-
-    for( i=0; i<strip_buffer_2.numPixels(); i++) strip_buffer_2.setPixelColor(i, 0);
-    instantspan =  map(tempytilt,0,21,SpanWheel(span),0);
-    if (tempytilt < 21 and tempytilt >0)  strip_buffer_2.setPixelColor(tempytilt-1, Wheel(color));
-
-    for( i=0; i<strip_buffer_1.numPixels(); i++) strip_buffer_1.setPixelColor(i, 0);
-    instantspan =  map(tempytilt,0,21,0,SpanWheel(span));
-    if (tempytilt < 21 and tempytilt >0)  strip_buffer_1.setPixelColor(tempytilt-1, Wheel(color));
-  }
-  else if (effect_mode == 6){
-    suit_brightness=127;
-
-    int tempytilt = map(ytilt, 0, 254,0, 21)-1;
-
-    for( i=0; i<strip_buffer_2.numPixels(); i++) {
-      suit_brightness = map(abs(tempytilt-i),0,19,0,127);
-      instantspan = map(tempytilt,-1,20,SpanWheel(span),0);
-      strip_buffer_2.setPixelColor(i, Wheel(color));
-    }
-
-    for( i=0; i<strip_buffer_1.numPixels(); i++){
-      suit_brightness = map(abs(tempytilt-i),0,19,0,127);
-      instantspan =  map(tempytilt,-1,20,0,SpanWheel(span));
-      strip_buffer_1.setPixelColor(i, Wheel(color));
-    }
-
-
-  }
-  else if (effect_mode == 7){
-    byte startingpixel=0;
-    byte endingpixel=0;
-
-    switch (active_segment){
-    case 1:
-      startingpixel=0;
-      endingpixel=14;
-      break;
-    case 2:
-      startingpixel=14;
-      endingpixel=20;
-      break;
-    case 3:
-      startingpixel=0;
-      endingpixel=8;
-      break;
-    case 4:
-      startingpixel=8;
-      endingpixel=16;
-      break;
-    case 5:
-      startingpixel=16;
-      endingpixel=20;
       break;
     }
+  case 4:
+    {
+      suit_brightness=127;    
+      byte tempytilt = map(ytilt, 0, 254,0, 20);
 
-    suit_brightness = map(ytilt, 0, 254,0, 127);
+      if(beat_completed==false){
+        //light up
+        instantspan =  map(tempytilt,0,20,SpanWheel(span),0);
+        for( i=0; i<tempytilt; i++) strip_buffer_2.setPixelColor(i,  Wheel(color));
+        for(int i=tempytilt; i<strip_buffer_2.numPixels(); i++) strip_buffer_2.setPixelColor(i, 0);
 
-    instantspan =  map(suit_brightness,0,127,SpanWheel(span),0);
-    for( i=0; i<strip_buffer_2.numPixels(); i++)     {
-      if( i < endingpixel && i >= startingpixel){
-        strip_buffer_2.setPixelColor(i,  Wheel(color));
+        instantspan =  map(tempytilt,0,20,0,SpanWheel(span));
+        for( i=0; i<tempytilt; i++) strip_buffer_1.setPixelColor(i,  Wheel(color));
+        for(int i=tempytilt; i<strip_buffer_1.numPixels(); i++) strip_buffer_1.setPixelColor(i, 0);
       }
       else{
-        strip_buffer_2.setPixelColor(i,  0);
-      }
-    }
+        //fade out
+        instantspan =  0;
+        for(int i=0; i<tempytilt; i++){
+          suit_brightness = map(abs(tempytilt-i),0,21,127,0); //21 so the last LED doesnt go out
+          suit_brightness= map(constrain(millis()-ytilt_one_way_timer,0,100),0,100,suit_brightness,0);
+          strip_buffer_2.setPixelColor(i,  Wheel(color));
+        }
 
-    instantspan =  map(suit_brightness,0,127,0,SpanWheel(span));
-    for( i=0; i<strip_buffer_1.numPixels(); i++)     {
-      if( i < endingpixel && i >= startingpixel){
+        instantspan =  SpanWheel(span);
+        for(int i=0; i<tempytilt; i++){
+          suit_brightness = map(abs(tempytilt-i),0,21,127,0); //21 so the last LED doesnt go out
+          suit_brightness= map(constrain(millis()-ytilt_one_way_timer,0,100),0,100,suit_brightness,0);
+          strip_buffer_1.setPixelColor(i,  Wheel(color));
+        }
+      }
+      break;
+    }
+  case 5:
+    {
+      suit_brightness = 127;
+      byte tempytilt = map(ytilt, 0,254,0, 21);
+
+      for( i=0; i<strip_buffer_2.numPixels(); i++) strip_buffer_2.setPixelColor(i, 0);
+      instantspan =  map(tempytilt,0,21,SpanWheel(span),0);
+      if (tempytilt < 21 and tempytilt >0)  strip_buffer_2.setPixelColor(tempytilt-1, Wheel(color));
+
+      for( i=0; i<strip_buffer_1.numPixels(); i++) strip_buffer_1.setPixelColor(i, 0);
+      instantspan =  map(tempytilt,0,21,0,SpanWheel(span));
+      if (tempytilt < 21 and tempytilt >0)  strip_buffer_1.setPixelColor(tempytilt-1, Wheel(color));
+      break;
+    }
+  case 6:
+    {
+      suit_brightness=127;
+
+      int tempytilt = map(ytilt, 0, 254,0, 21)-1;
+
+      for( i=0; i<strip_buffer_2.numPixels(); i++) {
+        suit_brightness = map(abs(tempytilt-i),0,19,0,127);
+        instantspan = map(tempytilt,-1,20,SpanWheel(span),0);
+        strip_buffer_2.setPixelColor(i, Wheel(color));
+      }
+
+      for( i=0; i<strip_buffer_1.numPixels(); i++){
+        suit_brightness = map(abs(tempytilt-i),0,19,0,127);
+        instantspan =  map(tempytilt,-1,20,0,SpanWheel(span));
+        strip_buffer_1.setPixelColor(i, Wheel(color));
+      }
+
+      break;
+    }
+  case 7:
+    {
+      byte startingpixel=0;
+      byte endingpixel=0;
+
+      switch (active_segment){
+      case 1:
+        startingpixel=0;
+        endingpixel=14;
+        break;
+      case 2:
+        startingpixel=14;
+        endingpixel=20;
+        break;
+      case 3:
+        startingpixel=0;
+        endingpixel=8;
+        break;
+      case 4:
+        startingpixel=8;
+        endingpixel=16;
+        break;
+      case 5:
+        startingpixel=16;
+        endingpixel=20;
+        break;
+      }
+
+      suit_brightness = map(ytilt, 0, 254,0, 127);
+
+      instantspan =  map(suit_brightness,0,127,SpanWheel(span),0);
+      for( i=0; i<strip_buffer_2.numPixels(); i++){
+        if( i < endingpixel && i >= startingpixel){
+          strip_buffer_2.setPixelColor(i,  Wheel(color));
+        }
+        else{
+          strip_buffer_2.setPixelColor(i,  0);
+        }
+      }
+
+      instantspan =  map(suit_brightness,0,127,0,SpanWheel(span));
+      for( i=0; i<strip_buffer_1.numPixels(); i++){
+        if( i < endingpixel && i >= startingpixel){
+          strip_buffer_1.setPixelColor(i,  Wheel(color));
+        }
+        else{
+          strip_buffer_1.setPixelColor(i,  0);
+        }
+      }
+      break;
+    }
+  case 8:
+    {
+      auto_pump_mode=0;
+
+      suit_brightness=127;
+      for( i=0; i<strip_buffer_1.numPixels(); i++){
+        instantspan =  map(i,0,19,0,SpanWheel(span));
         strip_buffer_1.setPixelColor(i,  Wheel(color));
       }
-      else{
-        strip_buffer_1.setPixelColor(i,  0);
-      }
-    }
-  } 
-  else if (effect_mode == 8){
-    auto_pump_mode=0;
-
-    suit_brightness=127;
-    for( i=0; i<strip_buffer_1.numPixels(); i++)     {
-      instantspan =  map(i,0,19,0,SpanWheel(span));
-      strip_buffer_1.setPixelColor(i,  Wheel(color));
+      break;
     }
   }
+
 
   if (overlay_event!=0){ //code to start overlays
     //fadeout (Dpad down left)
@@ -1354,7 +1373,8 @@ int gesture(int inputvalue, int itemrange){
   currentvalue = map(currentvalue, 0, 254,-(itemrange*2), itemrange*2);
 
   //save the initial data from when the gesture starts
-  if (latch_flag==0){
+  switch(latch_flag){
+  case 0:
     if (currentvalue < -itemrange ){  //init cw inputvalue rotate
       latch_data = inputvalue;
       latch_flag=1;
@@ -1363,8 +1383,8 @@ int gesture(int inputvalue, int itemrange){
       latch_data = inputvalue;
       latch_flag=2;
     }
-  }
-  else if (latch_flag==1){// cw inputvalue rotate
+    break;
+  case 1:
     if (currentvalue < -itemrange){ //init condition
       inputvalue = latch_data;
     } 
@@ -1380,9 +1400,8 @@ int gesture(int inputvalue, int itemrange){
     if ( (latch_data -(latch_data % (itemrange*2)) +(itemrange*2))  < inputvalue){
       inputvalue =latch_data -(latch_data % (itemrange*2)) +(itemrange*2);
     }
-
-  }
-  else if (latch_flag==2){ //ccw inputvalue rotate
+    break;
+  case 2:
     if (currentvalue > itemrange){ //init condition
       inputvalue = latch_data;
     } 
@@ -1398,8 +1417,8 @@ int gesture(int inputvalue, int itemrange){
     if ( (latch_data -(latch_data % itemrange*2))  < inputvalue){
       inputvalue = latch_data -(latch_data % itemrange*2);
     }
-  }
-  else if (latch_flag > 3){ //rearm after cooldown of 200msec has passed
+    break;
+  default:
     if (latch_cool_down + LATCHTIME < millis()){
       if (latch_flag==4){
         if (currentvalue < -itemrange ){ 
@@ -1796,12 +1815,167 @@ void nunchuckparse(){
       ytilt_one_way_timer = millis();
     }
     ytilt_one_way = 0;
+
+    //run oncon peak of pump
+    if(beat_completed== true){
+
+      switch(auto_pump_mode){
+      case 0:
+        auto_pump = false;
+        break;
+      case 1:
+        auto_pump = true;
+        auto_pump_multiplier = 0;
+        break;
+      case 2:
+        auto_pump_multiplier = 1;
+        break;
+      case 3:
+        auto_pump_multiplier = 2;
+        break;
+      case 4:
+        auto_pump_multiplier = 3;
+        break;
+      default:
+        auto_pump_multiplier = 3;
+        auto_pump_mode = 4;
+      }
+
+      if(auto_pump == true){
+        //only stay in turbo modes while holding button
+        if(auto_pump_multiplier > 0 && (dpad & 0x0F) == 0x00){
+          auto_pump_mode=1;
+          auto_pump_multiplier = 0;
+        }
+        if (fade == 7){
+          auto_pump_mode=0;
+          auto_pump = false;
+        }
+        //avoid time travel into the future when entering auto mode
+        //if the manual entry beat comes in a few milliseconds late when transitioning it would look ugly
+        if (bpm_starting_time+bpm_period > millis()){
+          bpm_starting_time=millis();
+        }
+        else{
+          bpm_starting_time=bpm_starting_time+bpm_period;
+        }
+      }
+      else{
+        //60 is minimum bpm
+        bpm_period = constrain(bpm_period,200,1000);
+
+        //filter the bpm
+        bpm_period = bpm_period * .5 + (millis()-bpm_starting_time) *.5;
+        bpm_starting_time= millis(); 
+      }
+
+      //ratchet active_segment code
+      if(effect_mode == 7){
+        switch (output_mode){
+        case 0: //down
+          active_segment++;
+          if (active_segment >5){
+            active_segment=1;
+          }
+          break;
+        case 1: //down left
+          active_segment--;
+          if (active_segment < 1){
+            active_segment=2;
+            output_mode=7;
+          }
+          else  if (active_segment >2){
+            active_segment=1;
+          }
+          break; 
+        case 2:  //left
+          active_segment--;
+          if (active_segment <1){
+            active_segment=2;
+            output_mode=6;
+          }
+          else if (active_segment >5){
+            active_segment=4;
+          }
+          break;
+        case 3: //up left
+          active_segment--;
+          if (active_segment <3){
+            active_segment=4;
+            output_mode=5;
+          }
+          else if (active_segment >5){
+            active_segment=4;
+          }
+          break;
+        case 4: //up 
+          active_segment--;
+          if (active_segment <1){
+            active_segment=5;
+          }
+          break;
+        case 5: //up right
+          active_segment++;
+          if (active_segment >5){
+            active_segment=4;
+            output_mode=3;
+          }
+          else if (active_segment < 3){
+            active_segment=4;
+          }
+          break;
+        case 6: //right
+          active_segment++;
+          if (active_segment >5){
+            active_segment=4;
+            output_mode=2;
+          }
+          else if (active_segment <1){
+            active_segment=2;
+          }
+          break;
+        case 7: //down right
+          active_segment++;
+          if (active_segment >2){
+            active_segment=1;
+            output_mode=1;
+          }
+          else if (active_segment < 1){
+            active_segment=2;
+          }
+          break;
+        default:  //we shouldnt get here ever
+          active_segment=1;
+          output_mode=0;
+        }
+      }
+      //mode flipping code
+      if (effectbuffer_mode == 1){
+        effectbuffer_mode =2;
+      }
+      else if(effectbuffer_mode ==2){
+        effectbuffer_mode =1;
+      }
+      else if(effectbuffer_mode ==3){
+        effectbuffer_mode =4;
+      }
+      else if(effectbuffer_mode ==4){
+        effectbuffer_mode =3;
+      }
+    }
+    beat_completed=false;
   }
-  else if (ytilt == 254){
+  else if (ytilt == 254 ){
     if (ytilt_one_way != 254){
       ytilt_one_way_timer = millis();
     }
+    //run once on peak of pump
+    if(beat_completed== false){
+      beats++;
+    }
+    beat_completed=true;
   }
+
   ytilt_one_way = max(ytilt_one_way,ytilt);  
 
 }
@@ -1840,14 +2014,15 @@ void updatedisplay(){
   //its important that motion effects write buffer 1 last so that instantspan is left set for the helmet to follow
   //if buffer2 is written last the helmet will be inverted (since it will be following buffer 2)
 
-  //save brightness values for later and set to max val
+  //save brightness values for later
   byte tempfade = fade;
   byte tempbrightness = suit_brightness;
   if (fade < 7){
     fade = 0;
   }
   else{
-    if(ring_timer + RINGTIMEOUT > millis() ||  (ring_timer + RINGTIMEOUT*2 < millis() & ring_timer + RINGTIMEOUT *3 > millis()   )){
+    //if ringing while dimmed force the display to go to full bright
+    if(ring_timer + RINGTIMEOUT > millis() ||  (ring_timer + RINGTIMEOUT*2 < millis() & ring_timer + RINGTIMEOUT *3 > millis())){
       fade=0;
     } 
   }
@@ -1885,18 +2060,17 @@ void updatedisplay(){
     suit_brightness = disc_brightness;
   }
 
+  long int tempcolor = Wheel(color);
+  byte r = (tempcolor >> 8) & 0x7F;
+  byte g = (tempcolor >> 16) & 0x7F;
+  byte b = (tempcolor >>0) & 0x7F;
 
-  long int tempcolor =Wheel(color);
-  byte r = (tempcolor>> 8)& 0x7F;
-  byte g  = (tempcolor>> 16)& 0x7F;
-  byte b = (tempcolor>>0) & 0x7F;
-
-
-  //build a data packet to send to the helmet
+  //start building a data packet to send to the helmet
   Serial3.write(START_COMMAND);
 
-  if(ring_timer + RINGTIMEOUT > millis() ||  (ring_timer + RINGTIMEOUT*2 < millis() & ring_timer + RINGTIMEOUT *3 > millis()   )){
-    if((millis()  >> 6) & 0x01 ){ 
+  //if rining, blank display backlight
+  if(ring_timer + RINGTIMEOUT > millis() ||  (ring_timer + RINGTIMEOUT*2 < millis() & ring_timer + RINGTIMEOUT *3 > millis())){
+    if((millis() >> 6) & 0x01 ){ 
       r = 0;
       g = 0;
       b = 0;
@@ -1907,8 +2081,9 @@ void updatedisplay(){
   Serial3.write(r<<1);//r
   Serial3.write(g<<1);//g
   Serial3.write(b<<1);//b
-  //exit on timer complete
 
+  //Generate a frame of ASCII to display
+  
   //reset to default display if timer ran out
   if(millis() - display_timer > display_timer_timeout){
     frame_mode = 0;
@@ -2020,30 +2195,13 @@ void updatedisplay(){
   switch (frame_mode){
   case 5:
   case 0:  //EQ mode
-    Serial3.print(effect_mode);
-    Serial3.print("  ");
     //update first line of LCD screen
-    Serial3.print("R");
-    if (r < 10){
-      Serial3.print("00");
-    } 
-    else if (r <100)
-      Serial3.print ("0");
-    Serial3.print(r,10);
-    Serial3.print(" G");
-    if (g < 10){
-      Serial3.print("00");
-    } 
-    else if (g <100)
-      Serial3.print ("0");
-    Serial3.print(g,10);
-    Serial3.print(" B");
-    if (b < 10){
-      Serial3.print("00");
-    } 
-    else if (b <100)
-      Serial3.print ("0");
-    Serial3.print(b,10);
+    Serial3.print(effect_mode);
+    Serial3.print(effectbuffer_mode);
+    Serial3.print(" ");
+    char temp[15];
+    sprintf(temp, "R%03d G%03d B%03d", r, g, b);
+    Serial3.print(temp);
     Serial3.print(" ");
     Serial3.print(output_mode);
     Serial3.print(tempfade);
@@ -2147,11 +2305,11 @@ void updatedisplay(){
   }
 
 
-  //calculate indicator LEDs and related things
+  //calculate indicator LEDs
   byte gpio=0x00;
+  
   //if not double tapped, determine LED1 and 2 below
   if (zc_doubletap_status !=3){
-
     //LED1 c button status
     if (nunchuk.cButton){
       //blink out the fade level on LED1, if fade level is greater than zero.
@@ -2184,7 +2342,7 @@ void updatedisplay(){
   }
 
   //LED3 - dpad status
-
+  //light on dpad registering a direction, and blink on diagonal output modes
   if (dpad & 0x0F){
     bitSet(gpio,2);
   }
@@ -2195,206 +2353,45 @@ void updatedisplay(){
       }
     }
   }
+  
   //LED4 - motion status
-
-  //idle mode
-  if ( effect_mode == 8){ 
-    //do nothing
-  }
-  //EQ modes
-  else if ( effect_mode == 0 || effect_mode == 1){  
-    //if a button is pressed...
-    if (nunchuk.cButton || nunchuk.zButton ){
-      //light led 4 based on gesture status
-      if(latch_flag == 1 || latch_flag == 2){
-        bitSet(gpio,3);
-      }
-    }
-    else{
-      //otherwise just light led4 if we tilt extremely to let us know we are in an eq mode
-      if(xtilt == 0 || xtilt == 254 ){
-        bitSet(gpio,3);
-      }     
-    }
-  } 
-  //fist pump modes
-  else {  
-    //change the pump status based on tilt
-    if (ytilt == 0){
-      //run oncon peak of pump
-      if(beat_completed== true){
-
-        switch(auto_pump_mode){
-        case 0:
-          auto_pump = false;
-          break;
-        case 1:
-          auto_pump = true;
-          auto_pump_multiplier = 0;
-          break;
-        case 2:
-          auto_pump_multiplier = 1;
-          break;
-        case 3:
-          auto_pump_multiplier = 2;
-          break;
-        case 4:
-          auto_pump_multiplier = 3;
-          break;
-        default:
-          auto_pump_multiplier = 3;
-          auto_pump_mode = 4;
-        }
-
-        if(auto_pump == true){
-          //only stay in turbo modes while holding button
-          if(auto_pump_multiplier > 0 && (dpad & 0x0F) == 0x00){
-            auto_pump_mode=1;
-            auto_pump_multiplier = 0;
-          }
-          if (fade == 7){
-            auto_pump_mode=0;
-            auto_pump = false;
-          }
-          //avoid time travel into the future when entering auto mode
-          //if the manual entry beat comes in a few milliseconds late when transitioning it would look ugly
-          if (bpm_starting_time+bpm_period > millis()){
-            bpm_starting_time=millis();
-          }
-          else{
-            bpm_starting_time=bpm_starting_time+bpm_period;
-          }
-        }
-        else{
-          //60 is minimum bpm
-          bpm_period = constrain(bpm_period,200,1000);
-
-          //filter the bpm
-          bpm_period = bpm_period * .5 + (millis()-bpm_starting_time) *.5;
-          bpm_starting_time= millis(); 
-        }
-
-        //ratchet active_segment code
-        if(effect_mode == 7){
-          switch (output_mode){
-          case 0: //down
-            active_segment++;
-            if (active_segment >5){
-              active_segment=1;
-            }
-            break;
-          case 1: //down left
-            active_segment--;
-            if (active_segment < 1){
-              active_segment=2;
-              output_mode=7;
-            }
-            else  if (active_segment >2){
-              active_segment=1;
-            }
-            break; 
-          case 2:  //left
-            active_segment--;
-            if (active_segment <1){
-              active_segment=2;
-              output_mode=6;
-            }
-            else if (active_segment >5){
-              active_segment=4;
-            }
-            break;
-          case 3: //up left
-            active_segment--;
-            if (active_segment <3){
-              active_segment=4;
-              output_mode=5;
-            }
-            else if (active_segment >5){
-              active_segment=4;
-            }
-            break;
-          case 4: //up 
-            active_segment--;
-            if (active_segment <1){
-              active_segment=5;
-            }
-            break;
-          case 5: //up right
-            active_segment++;
-            if (active_segment >5){
-              active_segment=4;
-              output_mode=3;
-            }
-            else if (active_segment < 3){
-              active_segment=4;
-            }
-            break;
-          case 6: //right
-            active_segment++;
-            if (active_segment >5){
-              active_segment=4;
-              output_mode=2;
-            }
-            else if (active_segment <1){
-              active_segment=2;
-            }
-            break;
-          case 7: //down right
-            active_segment++;
-            if (active_segment >2){
-              active_segment=1;
-              output_mode=1;
-            }
-            else if (active_segment < 1){
-              active_segment=2;
-            }
-            break;
-          default:  //we shouldnt get here ever
-            active_segment=1;
-            output_mode=0;
-          }
-        }
-        //mode flipping code
-        if (effectbuffer_mode == 1){
-          effectbuffer_mode =2;
-        }
-        else if(effectbuffer_mode ==2){
-          effectbuffer_mode =1;
-        }
-        else if(effectbuffer_mode ==3){
-          effectbuffer_mode =4;
-        }
-        else if(effectbuffer_mode ==4){
-          effectbuffer_mode =3;
+  //idle mode is just blank, EQ modes are xtilt based, Motion modes are beat based
+  if( effect_mode != 8){
+    if (effect_mode == 0 || effect_mode == 1){  
+      //if a button is pressed...
+      if (nunchuk.cButton || nunchuk.zButton ){
+        //light led 4 based on gesture status
+        if(latch_flag == 1 || latch_flag == 2){
+          bitSet(gpio,3);
         }
       }
-      beat_completed=false;
-    }
-    else if (ytilt == 254 ){
-      //run once on peak of pump
-      if(beat_completed== false){
-        beats++;
+      else{
+        //otherwise just light led4 if we tilt extremely to let us know we are in an eq mode
+        if(xtilt == 0 || xtilt == 254 ){
+          bitSet(gpio,3);
+        }     
       }
-      beat_completed=true;
-    }
-
-    //if timer has ran out, set off alarm
-    if (millis() - bpm_starting_time > fistpump ){
-      //fist pumping alarm
-      if(((millis() >> 5) & 0x01 )&& fade !=7){
-        bitSet(gpio,3);
+    } 
+    //fist pump modes
+    else {  
+       //if timer has ran out, set off alarm
+      if (millis() - bpm_starting_time > fistpump ){
+        //beat alarm
+        if(((millis() >> 5) & 0x01 )&& fade !=7){
+          bitSet(gpio,3);
+        }
       }
-    }
-    //otherwise just display the current fist pumping status
-    else{
-      if ( beat_completed ){
-        bitSet(gpio,3);
+      //otherwise just display the current beat  status
+      else{
+        if (beat_completed == true){
+          bitSet(gpio,3);
+        }
       }
     }
   }
 
   //flash LEDs on incoming text
-  if(ring_timer + RINGTIMEOUT > millis() ||  (ring_timer + RINGTIMEOUT*2 < millis() & ring_timer + RINGTIMEOUT *3 > millis()   )){
+  if(ring_timer + RINGTIMEOUT > millis() ||  (ring_timer + RINGTIMEOUT*2 < millis() & ring_timer + RINGTIMEOUT *3 > millis())){
     if((millis()  >> 6) & 0x01 ){ 
       gpio=0x0F;
     }
@@ -2402,9 +2399,11 @@ void updatedisplay(){
       gpio=0x00;
     }
   }
+  
   Serial3.write(gpio);
 
-  //set brightness again
+  //set brightness back
   fade = tempfade;
   suit_brightness = tempbrightness;
 }
+

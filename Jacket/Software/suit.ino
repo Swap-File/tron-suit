@@ -1,4 +1,3 @@
-
 #include <MovingAverage.h>
 
 #include "LPD8806.h"

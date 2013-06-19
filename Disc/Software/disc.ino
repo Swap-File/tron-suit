@@ -333,7 +333,10 @@ void loop()
   }
 
   //normal serial read
-  while(Serial.available()){
+  byte bytes_read=0;
+  while(Serial.available()&& bytes_read < 254){
+    bytes_read++;
+    
     currentmode = 0;
     //watch for commands
     switch (Serial.peek()){

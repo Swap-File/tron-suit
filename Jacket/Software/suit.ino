@@ -1499,13 +1499,16 @@ uint32_t Wheel(uint16_t WheelPos){
   g = g*min(disc_brightness,suit_brightness)/127;
   b = b*min(disc_brightness,suit_brightness)/127;
 
-  return(strip_buffer_1.Color(r = r >> fade ,g = g >> fade,b = b >> fade));
+  return(strip_buffer_1.Color(r >> fade ,g >> fade,b >> fade));
 }
 
 void readserial(){
+  byte bytes_read;
 
   //wixel recieving
-  while(Serial1.available()){
+  bytes_read=0;
+  while(Serial1.available() && bytes_read < 254){
+    bytes_read++;
     switch (Serial1.peek()){
     case SET_COLOR:
     case SET_SPAN:
@@ -1605,7 +1608,9 @@ void readserial(){
   }
 
   //bluetooth recieving
-  while(Serial2.available()){
+  bytes_read=0;
+  while(Serial2.available()&& bytes_read < 254){
+    bytes_read++;
     switch (Serial2.peek()){
     case SET_COLOR:
       serial2bufferpointer=0;
@@ -1642,30 +1647,24 @@ void readserial(){
           break;
         }
       case SET_FRAME1:
-        display_timer=0;
         ring_timer=millis();
         Serial2.write(CONFIRMED);
-        {
-          memcpy(frame1,&serial2buffer[1],sizeof(frame1));
-          break;
-        }
+        memcpy(frame1,&serial2buffer[1],sizeof(frame1));
+        break;
       case SET_FRAME2:
         Serial2.write(CONFIRMED);
-        {
-          memcpy(frame2,&serial2buffer[1],sizeof(frame2));
-          display_timer =millis();
-          display_timer_timeout = 60000;
-          animation_event=true;
+        memcpy(frame2,&serial2buffer[1],sizeof(frame2));
+        display_timer =millis();
+        display_timer_timeout = 60000;
+        animation_event=true;
 
-          //turn on to static mode full bright when disabled
-          if (fade == 7){
-            effect_mode=8;
-          }
-          fade = 0;
-          break;
+        //turn on to static mode full bright when disabled
+        if (fade == 7){
+          effect_mode=8;
         }
+        fade = 0;
+        break;
       case TEXTING_REPLY:
-        {
           Serial2.println(color); //COLOR1
           Serial2.println(SpanWheel(span));//COLOR2
           Serial2.println(fps_last); //FPS
@@ -1677,7 +1676,6 @@ void readserial(){
           Serial2.println(eeprom_time_starting); //minutes
           Serial2.println(eeprom_beats_starting);
           break;
-        }
       default:
         serial2buffer[0] = 0xff;
       }
@@ -1965,12 +1963,10 @@ void nunchuckparse(){
     beat_completed=false;
   }
   else if (ytilt == 254 ){
-    if (ytilt_one_way != 254){
-      ytilt_one_way_timer = millis();
-    }
     //run once on peak of pump
     if(beat_completed== false){
       beats++;
+      ytilt_one_way_timer = millis();
     }
     beat_completed=true;
   }
@@ -2082,7 +2078,7 @@ void updatedisplay(){
   Serial3.write(b<<1);//b
 
   //Generate a frame of ASCII to display
-  
+
   //reset to default display if timer ran out
   if(millis() - display_timer > display_timer_timeout){
     frame_mode = 0;
@@ -2306,7 +2302,7 @@ void updatedisplay(){
 
   //calculate indicator LEDs
   byte gpio=0x00;
-  
+
   //if not double tapped, determine LED1 and 2 below
   if (zc_doubletap_status !=3){
     //LED1 c button status
@@ -2352,7 +2348,7 @@ void updatedisplay(){
       }
     }
   }
-  
+
   //LED4 - motion status
   //idle mode is just blank, EQ modes are xtilt based, Motion modes are beat based
   if( effect_mode != 8){
@@ -2373,7 +2369,7 @@ void updatedisplay(){
     } 
     //fist pump modes
     else {  
-       //if timer has ran out, set off alarm
+      //if timer has ran out, set off alarm
       if (millis() - bpm_starting_time > fistpump ){
         //beat alarm
         if(((millis() >> 5) & 0x01 )&& fade !=7){
@@ -2398,11 +2394,13 @@ void updatedisplay(){
       gpio=0x00;
     }
   }
-  
+
   Serial3.write(gpio);
 
   //set brightness back
   fade = tempfade;
   suit_brightness = tempbrightness;
 }
+
+
 

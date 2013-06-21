@@ -1,10 +1,13 @@
 
-#include <TimerOne.h>
 #include "LPD8806.h"
 #include "SPI.h"
 #include <Wire.h>
 #include <ADXL345.h>
 #include <MovingAverage2.h>
+
+#include <MD_TCS230.h>
+#include <FreqCount.h>
+
 
 #define spanrange 64 //half range of the span gesture
 
@@ -60,18 +63,13 @@ int i = 0;
 int rainbowoffset=383;
 
 
-
-#define S0     6
-#define S1     7
-#define S2     4
-#define S3     5
-#define OUT    2
 #define LIGHTS 3
 
-
-volatile int g_count = 0;    // count the frequecy
-int   g_array[3];     // store the RGB value
-int   g_flag = 0;     // filter of RGB queue
+#define  S0_OUT  6
+#define  S1_OUT  7
+#define  S2_OUT  4
+#define  S3_OUT  2
+MD_TCS230	CS(S2_OUT, S3_OUT, S0_OUT,S1_OUT );
 
 
 int color = 0;
@@ -117,71 +115,28 @@ unsigned long tap_time = 0; //time of first latch for input debounce
 int overlaytimer = 0;  //blinks the LED for modes
 
 
-// Init TSC230 and setting Frequency.
-void TSC_Init()
-{
-  pinMode(S0, OUTPUT);
-  pinMode(S1, OUTPUT);
-  pinMode(S2, OUTPUT);
-  pinMode(S3, OUTPUT);
-  pinMode(OUT, INPUT);
-}
-
-// Select the filter color
-void TSC_FilterColor(int Level01, int Level02)
-{
-  digitalWrite(S2, Level01);
-  digitalWrite(S3, Level02);
-}
-
-void TSC_Count()
-{
-  g_count++ ;
-}
-
-void TSC_Callback()
-{
-  switch(g_flag)
-  {
-  case 0:
-    g_flag ++; //lets the timer warm up dont use first cycle of timer 1
-    digitalWrite(S0, HIGH);  // enable camera at full frequency
-    digitalWrite(S1, HIGH);
-    break;
-  case 1:
-    TSC_WB(LOW, LOW);              // set camera to Red
-    break;
-  case 2:
-    g_array[0] = g_count;          // save Red data
-    TSC_WB(HIGH, HIGH);            // set camera to Green
-    break;
-  case 3:
-    g_array[1] = g_count;          // save Green data
-    TSC_WB(LOW, HIGH);             // set camera to Blue
-    break;
-  case 4:
-    g_array[2] = g_count;          // save Blue data
-    Timer1.detachInterrupt();    
-    detachInterrupt(0);
-    digitalWrite(S0, LOW);  //shut down camera
-    digitalWrite(S1, LOW);
-    g_flag = 0;
-    break;
-  }
-}
-
-void TSC_WB(int Level0, int Level1) 
-{
-  g_count = 0;
-  g_flag ++;
-  TSC_FilterColor(Level0, Level1);
-}
 
 void setup()
 {
-  TSC_Init();
+
+  CS.begin();
+  CS.setSampling(10);
+  static	sensorData	sd;
+  static sensorData	DarkCal;
+  DarkCal.value[TCS230_RGB_R]=300;
+  DarkCal.value[TCS230_RGB_G]=295;
+  DarkCal.value[TCS230_RGB_B]=320;
+
+  static sensorData	WhiteCal;
+  WhiteCal.value[TCS230_RGB_R]=7420;
+  WhiteCal.value[TCS230_RGB_G]=6905;
+  WhiteCal.value[TCS230_RGB_B]=7880;
+
+  CS.setDarkCal(&DarkCal);	
+  CS.setWhiteCal(&WhiteCal);
+
+
   Serial.begin(115200);
-  Timer1.initialize(250000);  
   strip.begin();
 
   //Color sensor flashlights
@@ -240,13 +195,32 @@ void setup()
   adxl.readAccel(&previous_x_absolute, &previous_y_absolute, &previous_z_absolute); 
 } 
 
+char getChar()
+// blocking wait for an input character from the input stream
+{
+  while (Serial.available() == 0)
+    ;
+  return(toupper(Serial.read()));
+}
+
+void clearInput()
+// clear all characters from the serial input
+{
+  while (Serial.read() != -1)
+    ;
+}
+
 void loop()
 {
-
   if (millis()- idle_timer > 10000){
     z_latch = 1;
     currentmode=0;
   }
+
+
+
+
+
 
   //battery level check
   //650 = 9.45v
@@ -298,21 +272,22 @@ void loop()
       //send a heartbeat before going dark
       sendbattery();
 
-      digitalWrite(LIGHTS, HIGH );
-      attachInterrupt(0, TSC_Count, RISING);
-      Timer1.attachInterrupt(TSC_Callback); 
-
-      delay(1000);
+      digitalWrite(LIGHTS, HIGH);
+      while (CS.available() !=true){
+      }
+      digitalWrite(LIGHTS, LOW);
+      colorData	rgb;
+      CS.getRGB(&rgb);
 
       //send a heartbeat before animating
       sendbattery();
 
-      digitalWrite(LIGHTS,LOW );
-      if (g_array[0]+g_array[1]+g_array[2] <20){
+
+      if (rgb.value[TCS230_RGB_R]+rgb.value[TCS230_RGB_G]+rgb.value[TCS230_RGB_B] <20){
         fade=7;
       }
       else{
-        color = readcolor();
+        color = readcolor(rgb.value[TCS230_RGB_R],rgb.value[TCS230_RGB_G],rgb.value[TCS230_RGB_B]);
       }
       //start at top of disc and work around
       for(int i=strip.numPixels()+1; i>-1; i--) {
@@ -336,7 +311,7 @@ void loop()
   byte bytes_read=0;
   while(Serial.available()&& bytes_read < 254){
     bytes_read++;
-    
+
     currentmode = 0;
     //watch for commands
     switch (Serial.peek()){
@@ -486,7 +461,7 @@ void loop()
             strip.showCompileTime<ClockPin, DataPin>(); 
             delay(50);
           }
-          
+
           z_latch = 0;
           currentmode=0;
         }
@@ -702,10 +677,10 @@ int SpanWheel(int SpanWheelPos){
   return tempspan;
 }
 
-int readcolor(){
-  float red= float( g_array[0] );
-  float green = float(g_array[1] * 1.1412);  //sqrt of 2 due to color cube
-  float blue= float(g_array[2] );
+int readcolor(byte r,byte g, byte b){
+  float red= float( r);
+  float green = float(g);  
+  float blue= float(b);
 
   float maxvalue = max(max(red,blue),green);
   float minvalue  = min(min(red,blue),green); 
@@ -715,24 +690,40 @@ int readcolor(){
   //this is based on the HSL to RGB equations on wikipedia
   //I added correction factors to compensate for my sensors LEDs etc
   if (maxvalue == red){
-    h = ((green - blue)/chroma);  //red correction factor
-    if (h > 6){
+    h = ((green - blue)/chroma) ;  
+    while (h > 6){
       h = h -6; 
     }
-    h = (h + 0.1) * 1.2; 
-  }
-  else if (maxvalue == green){
-    h = ((green - red)/chroma)+1;   //green correction factor
-  }
-  else if (maxvalue== blue){
-    h = ((red - green)/(chroma)) ;   //blue correction factor
-    h =(h + 0.35);   
-    if (h < 0){
-      h = h * 4 + 4; 
+    h = h +0.1; //offset to 0 = pantone 185
+    if (h<0){
+      h = h  * 1; //exaggerate towards 1 = magenta pantone 238
     }
     else{
-      h = h * (2 - h) + 4 ;
+      h = h  * 1.25; //exaggerate towards -1 = yellow pantone 102
     }
+  }
+  else if (maxvalue == green){
+    h = ((blue - red)/chroma);   //green correction factor
+    h = h +.25; //offset to zero (pantone 361 = 0)
+    if (h<0){
+      h = h  * 1.5; //exaggerate  towards yellow 584
+    }
+    else{
+      h = h  * .5; //lessen  towards cyan ,
+    }
+    h = h  +2; //center on correct location  
+  }
+
+  else if (maxvalue== blue){
+    h = ((red - green)/(chroma)) ;   //blue correction factor
+    h =(h + 0.60);    //offset to zero (pantone 293 = 0) 
+    if (h<0){
+      h = h  * 3.333; //exaggerate  towards cyan 306
+    }
+    else{
+      h = h  * 1.3; //exaggerate  towards magenta
+    }
+    h = h  + 4; //center on correct location
   }
 
   //convert 360 degrees to a 383 color wheel number
@@ -793,6 +784,15 @@ uint32_t Wheel(uint16_t WheelPos){
   b = b*brightness/127;
   return(strip.Color( r >> fade ,g >> fade,b >> fade));
 }
+
+
+
+
+
+
+
+
+
 
 
 

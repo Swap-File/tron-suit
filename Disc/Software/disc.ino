@@ -114,7 +114,8 @@ unsigned long tap_time = 0; //time of first latch for input debounce
 //overlay
 int overlaytimer = 0;  //blinks the LED for modes
 
-
+byte camera_mode=0;
+unsigned long camera_mode_timer = 0; 
 
 void setup()
 {
@@ -188,39 +189,22 @@ void setup()
   adxl.setInterrupt( ADXL345_INT_SINGLE_TAP_BIT, 0);
   adxl.setInterrupt( ADXL345_INT_DOUBLE_TAP_BIT, 1);
   adxl.setInterrupt( ADXL345_INT_FREE_FALL_BIT, 0);
-  adxl.setInterrupt( ADXL345_INT_ACTIVITY_BIT, 1);
-  adxl.setInterrupt( ADXL345_INT_INACTIVITY_BIT, 1);
+  adxl.setInterrupt( ADXL345_INT_ACTIVITY_BIT, 0);
+  adxl.setInterrupt( ADXL345_INT_INACTIVITY_BIT, 0);
 
   //populate starting values
   adxl.readAccel(&previous_x_absolute, &previous_y_absolute, &previous_z_absolute); 
 } 
 
-char getChar()
-// blocking wait for an input character from the input stream
-{
-  while (Serial.available() == 0)
-    ;
-  return(toupper(Serial.read()));
-}
-
-void clearInput()
-// clear all characters from the serial input
-{
-  while (Serial.read() != -1)
-    ;
-}
 
 void loop()
 {
+
+  //idle timeout
   if (millis()- idle_timer > 10000){
     z_latch = 1;
     currentmode=0;
   }
-
-
-
-
-
 
   //battery level check
   //650 = 9.45v
@@ -239,9 +223,14 @@ void loop()
     }
   }
 
+
   if (millis() - batteryupdate > 1000){
-    sendbattery();
+    Serial.write(BATTERY_LEVEL);
+    Serial.write((disc_voltage >> 6) & 0xFE);
+    Serial.write(disc_voltage << 1);
+    batteryupdate=millis();
   }
+
 
   byte intsource = adxl.getInterruptSource();
   if ((intsource >> ADXL345_INT_DOUBLE_TAP_BIT) & 1)  {
@@ -254,50 +243,14 @@ void loop()
       delay(100);
     }
     else{
-      fade=0;
-      span=0;
-      instantspan=0;
-      z_latch = 1;
-
-      //send a heartbeat before animating
-      sendbattery();
-
-      for(int i=0; i<16; i++) {
-        //start at top of disc and work around
-        strip.setPixelColor((i+xy_angle+8 )%16,Wheel(384)); // Set new pixel 'on'
-        strip.showCompileTime<ClockPin, DataPin>();              // Refresh LED states
-        delay(50);
-      }
-
-      //send a heartbeat before going dark
-      sendbattery();
-
-      digitalWrite(LIGHTS, HIGH);
-      while (CS.available() !=true){
-      }
-      digitalWrite(LIGHTS, LOW);
-      colorData	rgb;
-      CS.getRGB(&rgb);
-
-      //send a heartbeat before animating
-      sendbattery();
-
-
-      if (rgb.value[TCS230_RGB_R]+rgb.value[TCS230_RGB_G]+rgb.value[TCS230_RGB_B] <20){
-        fade=7;
+      if (camera_mode > 0){
+        camera_mode= 0;
       }
       else{
-        color = readcolor(rgb.value[TCS230_RGB_R],rgb.value[TCS230_RGB_G],rgb.value[TCS230_RGB_B]);
+        camera_mode = 1;
+        camera_mode_timer = millis();
+        z_latch_angle = xy_angle;
       }
-      //start at top of disc and work around
-      for(int i=strip.numPixels()+1; i>-1; i--) {
-        strip.setPixelColor((i +xy_angle+8)%16,Wheel(color)); // Set new pixel 'on'
-        strip.showCompileTime<ClockPin, DataPin>();              // Refresh LED states
-        delay(50);
-      }
-
-      z_latch = 1;
-      currentmode=0;
     }
   }
   if ((intsource >> ADXL345_INT_SINGLE_TAP_BIT) & 1)  {
@@ -307,15 +260,13 @@ void loop()
     // z_latch = 1;
   }
 
-  //normal serial read
+  //read in serial data, limit to 253 bytes per cycle
   byte bytes_read=0;
-  while(Serial.available()&& bytes_read < 254){
+  while(Serial.available() && bytes_read < 254){
     bytes_read++;
 
-    currentmode = 0;
-    //watch for commands
+    //watch for data start bytes and adjust 
     switch (Serial.peek()){
-
     case SET_COLOR:
     case SET_SPAN:
     case SET_FADE_BRIGHTNESS:
@@ -324,10 +275,9 @@ void loop()
       break;
     }
 
-    //load a character
     serialbuffer[serialbufferpointer] = Serial.read(); 
 
-    //if done, process
+    //if buffer has a valid packet process it
     if(serialbufferpointer == 2){ 
       switch (serialbuffer[0]){
       case SET_COLOR:
@@ -396,30 +346,6 @@ void loop()
     }
   }
 
-  //serial write
-  if(millis()-lastupdate >50){
-
-    if (last_set_color != color){
-      Serial.write(SET_COLOR);
-      Serial.write((color >> 6) & 0xFE); //transmit higher bits
-      Serial.write(color << 1); //transmit lower bits
-    }
-
-    if (last_set_span != span){
-      Serial.write(SET_SPAN);
-      Serial.write((span >> 6) & 0xFE); //transmit hfcoloigher bits
-      Serial.write(span << 1); //transmit lower bits
-    }
-
-    if (last_set_fade != fade){
-      Serial.write(SET_FADE_BRIGHTNESS);
-      Serial.write(fade); //data small enough (0-7)it wont collide
-      Serial.write(brightness+127); //not used, but needed for padding
-    }
-
-    lastupdate=millis();
-  }
-
 
   int x_absolute,y_absolute,z_absolute;
   adxl.readAccel(&x_absolute, &y_absolute, &z_absolute); 
@@ -441,6 +367,9 @@ void loop()
   xy_filtered_magnitude = (int)sqrt((long)y_filtered*y_filtered+(long)x_filtered*x_filtered);
   xy_angle =  (int)(floor(((atan2(y_absolute,x_absolute) *2.54)+8.5))) % 16;
   xy_filtered_angle =  (int)(floor(((atan2(y_filtered,x_filtered) *2.54)+8.5))) % 16;
+
+
+
   if ((z_latch !=3 && z_latch !=4 )) {
     if  (xy_angle == previous_xy_angle) { //angle must go in the same direction
       if (xy_filtered_magnitude > previous_xy_filtered_magnitude && xy_filtered_magnitude > 150){  //filtered magnitude must be strong and rising 
@@ -510,9 +439,9 @@ void loop()
     }
   }
 
+
   if (currentmode == 0){
     magnitude = 9;
-
     //z is 128 at horizontal (over 96) and below 32 (near 0 at verticle)
     //use absolute x and y and then add in filter x and y for exaggeration of movement
 
@@ -601,33 +530,112 @@ void loop()
     }
   }
 
+  if(camera_mode == 0){
 
-  //updates the strip
-  //i must be global for rainbow colors
-  //angle is 0 to 15  22.5 degrees each
-  //magnitude is 0 to 9  0 is blank, 9 is full
+    //updates the strip
+    //i must be global for rainbow colors
+    //angle is 0 to 15  22.5 degrees each
+    //magnitude is 0 to 9  0 is blank, 9 is full
+    updatearray();
 
-  updatearray();
-
-  //overlay code
-  if (z_latch ==3){
-    if (overlaytimer > 0){
-      overlaytimer--;
-      idle_timer=millis();
-    } 
-    else{
-      strip.setPixelColor(z_latch_angle ,0);
-      strip.setPixelColor((z_latch_angle + 8) % 16,0);
+    //overlay code
+    if (z_latch ==3){
+      if (overlaytimer > 0){
+        overlaytimer--;
+        idle_timer=millis();
+      } 
+      else{
+        strip.setPixelColor(z_latch_angle ,0);
+        strip.setPixelColor((z_latch_angle + 8) % 16,0);
+      }
+    }
+    else  if (z_latch ==4 ){
+      strip.setPixelColor(z_latch_angle ,Wheel(384));
+      strip.setPixelColor((z_latch_angle + 8) % 16,Wheel(384));
     }
   }
-  else  if (z_latch ==4 ){
-    strip.setPixelColor(z_latch_angle ,Wheel(384));
-    strip.setPixelColor((z_latch_angle + 8) % 16,Wheel(384));
+  else{
+    unsigned long temp_time = constrain(millis()-camera_mode_timer,0,1000);
+    if (camera_mode == 1){
+      fade=0;
+      span=0;
+      instantspan=0;
+      z_latch = 1;
+
+      byte temp = map(temp_time,0,1000,0,16);
+      for(byte i=0; i<temp; i++) {
+        //start at top of disc and work around
+        strip.setPixelColor((i+z_latch_angle+8 )%16,Wheel(384)); // Set new pixel 'on'
+      }
+      if (temp_time == 1000){
+        camera_mode++;
+        digitalWrite(LIGHTS, HIGH);
+        CS.read();
+        camera_mode_timer=millis();
+      }
+    }
+    else if (camera_mode == 2){
+      if ( CS.available()){
+        colorData	rgb;
+        sensorData	sd;
+        CS.getRaw(&sd);	
+        CS.getRGB(&rgb);
+        digitalWrite(LIGHTS, LOW);
+        
+        //if dark, shut down
+        if (sd.value[TCS230_RGB_R]+sd.value[TCS230_RGB_G]+sd.value[TCS230_RGB_B] <400){ 
+
+          fade=7;
+          camera_mode=0;
+        }
+        else{
+          //if color is flooded, ignore
+          if(rgb.value[TCS230_RGB_R] != 255 && rgb.value[TCS230_RGB_G] != 255 && rgb.value[TCS230_RGB_B] != 255){
+            //if too white, ignore
+            if (sd.value[TCS230_RGB_R]+sd.value[TCS230_RGB_G]+sd.value[TCS230_RGB_B] < 12000){
+              color = RGBtoHSV(rgb.value[TCS230_RGB_R],rgb.value[TCS230_RGB_G],rgb.value[TCS230_RGB_B]);
+              span=0;
+            }
+          }
+          camera_mode++;
+          camera_mode_timer=millis();
+        }
+      }
+    } 
+    else if (camera_mode == 3){
+      byte temp = map(temp_time,0,1000,0,16);
+      for(int i=temp; i>-1; i--) {
+        strip.setPixelColor((i +z_latch_angle+8)%16,Wheel(color)); // Set new pixel 'on'
+      }
+      if (temp_time == 1000){
+        camera_mode=0;
+      }
+    }
   }
 
   strip.showCompileTime<ClockPin, DataPin>(); 
 
-  //store values for next cycle use
+  //serial write
+  if(millis()-lastupdate >50){
+    if (last_set_color != color){
+      Serial.write(SET_COLOR);
+      Serial.write((color >> 6) & 0xFE); //transmit higher bits
+      Serial.write(color << 1); //transmit lower bits
+    }
+    if (last_set_span != span){
+      Serial.write(SET_SPAN);
+      Serial.write((span >> 6) & 0xFE); //transmit hfcoloigher bits
+      Serial.write(span << 1); //transmit lower bits
+    }
+    if (last_set_fade != fade){
+      Serial.write(SET_FADE_BRIGHTNESS);
+      Serial.write(fade); //data small enough (0-7)it wont collide
+      Serial.write(brightness+127); //not used, but needed for padding
+    }
+    lastupdate=millis();
+  }
+
+  //store values for next cycle use - not all being used
   previous_x_absolute = x_absolute;
   previous_y_absolute = y_absolute;
   previous_z_absolute = z_absolute;
@@ -655,12 +663,6 @@ void updatearray(){
   }
 }
 
-void sendbattery(){
-  Serial.write(BATTERY_LEVEL);
-  Serial.write((disc_voltage >> 6) & 0xFE);
-  Serial.write(disc_voltage << 1);
-  batteryupdate=millis();
-}
 
 int SpanWheel(int SpanWheelPos){
   int tempspan;
@@ -677,53 +679,49 @@ int SpanWheel(int SpanWheelPos){
   return tempspan;
 }
 
-int readcolor(byte r,byte g, byte b){
-  float red= float( r);
-  float green = float(g);  
-  float blue= float(b);
+int RGBtoHSV(byte red,byte green, byte blue){
 
-  float maxvalue = max(max(red,blue),green);
-  float minvalue  = min(min(red,blue),green); 
-  float chroma = maxvalue - minvalue;
-
+  byte maxvalue = max(max(red,blue),green);
+  byte minvalue  = min(min(red,blue),green); 
+  byte chroma = maxvalue - minvalue;
   float h;
+
   //this is based on the HSL to RGB equations on wikipedia
   //I added correction factors to compensate for my sensors LEDs etc
   if (maxvalue == red){
-    h = ((green - blue)/chroma) ;  
+    h = (((float)(green - blue))/((float)chroma));  
     while (h > 6){
       h = h -6; 
     }
-    h = h +0.1; //offset to 0 = pantone 185
-    if (h<0){
-      h = h  * 1; //exaggerate towards 1 = magenta pantone 238
+    h = h + 0.1; //offset to 0, aiming for red pantone 185
+    if (h < 0){
+      h = h  * 1; //exaggerate towards -1, aiming for magenta pantone 238
     }
-    else{
-      h = h  * 1.25; //exaggerate towards -1 = yellow pantone 102
+    else {
+      h = h  * 1.25; //exaggerate towards 1, aiming for yellow pantone 102
     }
   }
   else if (maxvalue == green){
-    h = ((blue - red)/chroma);   //green correction factor
-    h = h +.25; //offset to zero (pantone 361 = 0)
-    if (h<0){
-      h = h  * 1.5; //exaggerate  towards yellow 584
+    h = (((float)(blue - red))/((float)chroma)); 
+    h = h + 0.25; //offset to zero, aiming for green pantone 361
+    if (h < 0){
+      h = h  * 1.5; //exaggerate towards -1, aiming for yellow pantone 102
     }
-    else{
-      h = h  * .5; //lessen  towards cyan ,
+    else {
+      h = h  * .5; //lessen towards 1, aiming for cyan pantone 306
     }
-    h = h  +2; //center on correct location  
+    h = h  + 2; //recenter on correct color wheel location
   }
-
-  else if (maxvalue== blue){
-    h = ((red - green)/(chroma)) ;   //blue correction factor
-    h =(h + 0.60);    //offset to zero (pantone 293 = 0) 
-    if (h<0){
-      h = h  * 3.333; //exaggerate  towards cyan 306
+  else if (maxvalue == blue){
+    h = (((float)(red - green))/((float)chroma));
+    h = (h + 0.60);    //offset to 0, aiming for blue pantone 293
+    if (h < 0){
+      h = h  * 3.333; //exaggerate towards -1, aiming for cyan pantone 306
     }
     else{
-      h = h  * 1.3; //exaggerate  towards magenta
+      h = h  * 1.3; //exaggerate towards 1, aiming for magenta pantone 238
     }
-    h = h  + 4; //center on correct location
+    h = h  + 4; //recenter on correct color wheel location
   }
 
   //convert 360 degrees to a 383 color wheel number
@@ -782,17 +780,5 @@ uint32_t Wheel(uint16_t WheelPos){
   r = r*brightness/127;
   g = g*brightness/127;
   b = b*brightness/127;
-  return(strip.Color( r >> fade ,g >> fade,b >> fade));
+  return(strip.Color(r >> fade ,g >> fade,b >> fade));
 }
-
-
-
-
-
-
-
-
-
-
-
-

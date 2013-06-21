@@ -75,7 +75,8 @@ MD_TCS230	CS(S2_OUT, S3_OUT, S0_OUT,S1_OUT );
 int color = 0;
 byte fade = 0;
 byte brightness = 127;
-int currentmode = 0;
+byte disc_mode = 0;
+unsigned long disc_mode_timer = 0; 
 int span = 0;
 int instantspan = 0;
 int magnitude=8;
@@ -83,8 +84,8 @@ int angle=0;
 
 
 int disc_voltage=1024;
-unsigned long lastupdate=0;
-unsigned long batteryupdate=0;
+unsigned long last_update=0;
+unsigned long battery_update=0;
 unsigned long idle_timer=0;
 int previous_x_absolute = 0;
 int previous_y_absolute = 0;
@@ -102,48 +103,46 @@ int previous_xy_filtered_magnitude =0;
 int previous_xy_angle = 0;
 int previous_xy_filtered_angle = 0;
 
-unsigned long swipetime=0;
-
-int z_latch_color = 0;  //color at time of first latch
-int z_latch_angle = -1; //angle of first latch -1 means hasnt occured yet
-unsigned long z_latch_time_cooldown = 0; //time of first latch for input debounce
-byte z_latch = 1; //keeps track of latching status
+int z_mode_color = 0;  //color at time of first latch
+int z_mode_angle = -1; //angle of first latch -1 means hasnt occured yet
+unsigned long z_mode_time_cooldown = 0; //time of first latch for input debounce
+byte z_mode = 1; //keeps track of latching status
 byte rotation_status  =0;  
-int z_latch_span;
-unsigned long tap_time = 0; //time of first latch for input debounce
+int z_mode_span;
+
 //overlay
 int overlaytimer = 0;  //blinks the LED for modes
 
-byte camera_mode=0;
-unsigned long camera_mode_timer = 0; 
 
+unsigned long  tripletap_time=0;
 void setup()
 {
 
   CS.begin();
   CS.setSampling(10);
-  static	sensorData	sd;
+
+  //black balance calibration data
   static sensorData	DarkCal;
   DarkCal.value[TCS230_RGB_R]=300;
   DarkCal.value[TCS230_RGB_G]=295;
   DarkCal.value[TCS230_RGB_B]=320;
+  CS.setDarkCal(&DarkCal);	
 
+  //white balance calibration data
   static sensorData	WhiteCal;
   WhiteCal.value[TCS230_RGB_R]=7420;
   WhiteCal.value[TCS230_RGB_G]=6905;
   WhiteCal.value[TCS230_RGB_B]=7880;
-
-  CS.setDarkCal(&DarkCal);	
   CS.setWhiteCal(&WhiteCal);
-
 
   Serial.begin(115200);
   strip.begin();
 
-  //Color sensor flashlights
+  //color sensor lights
   pinMode(LIGHTS, OUTPUT);
   digitalWrite(LIGHTS, LOW);
 
+  //accelerometer init
   Wire.begin();
   adxl.init(0x53);
   adxl.setRangeSetting(4);
@@ -200,41 +199,30 @@ void setup()
 void loop()
 {
 
+
   //idle timeout
   if (millis()- idle_timer > 10000){
-    z_latch = 1;
-    currentmode=0;
+    z_mode = 1;
+    disc_mode=0;
   }
 
   //battery level check
   //650 = 9.45v
+  //used in display update function
   disc_voltage = disc_voltage * .97 + analogRead(0) * .03;
 
-  if (disc_voltage < 650){
-    for(int i=0; i<strip.numPixels(); i++) {
-      if (i%2){
-        strip.setPixelColor(i,Wheel(0)); // Set new pixel 'on'
-      }
-      else{
-        strip.setPixelColor(i,0); // Set new pixel 'on'
-      }
-      strip.showCompileTime<ClockPin, DataPin>();          
-      delay(50);
-    }
-  }
-
-
-  if (millis() - batteryupdate > 1000){
+  //send heartbeat to suit every second
+  if (millis() - battery_update > 1000){
     Serial.write(BATTERY_LEVEL);
     Serial.write((disc_voltage >> 6) & 0xFE);
     Serial.write(disc_voltage << 1);
-    batteryupdate=millis();
+    battery_update=millis();
   }
-
 
   byte intsource = adxl.getInterruptSource();
   if ((intsource >> ADXL345_INT_DOUBLE_TAP_BIT) & 1)  {
-    if (millis() - tap_time < 200 ){
+    //if the overlay 
+    if (millis() - tripletap_time < 200){
       Serial.write(TRIPLE_TAP);
       for(int i=0; i<strip.numPixels(); i++) {
         strip.setPixelColor(i,0);
@@ -243,21 +231,19 @@ void loop()
       delay(100);
     }
     else{
-      if (camera_mode > 0){
-        camera_mode= 0;
+      if (disc_mode > 2){
+        disc_mode = 0;
       }
       else{
-        camera_mode = 1;
-        camera_mode_timer = millis();
-        z_latch_angle = xy_angle;
+        disc_mode = 3;
+        disc_mode_timer = millis();
+        z_mode_angle = xy_angle;
       }
     }
   }
   if ((intsource >> ADXL345_INT_SINGLE_TAP_BIT) & 1)  {
   }
   if ((intsource >> ADXL345_INT_INACTIVITY_BIT) & 1)  {
-    // currentmode=0;
-    // z_latch = 1;
   }
 
   //read in serial data, limit to 253 bytes per cycle
@@ -288,7 +274,7 @@ void loop()
           }
           else{
             color = tempcolor;
-            z_latch_color = tempcolor;//copy into latch buffer incase a new color comes in while gestureing
+            z_mode_color = tempcolor;//copy into latch buffer incase a new color comes in while gestureing
             last_set_color = tempcolor;
             Serial.write(SET_COLOR);
             tempcolor = tempcolor +386;
@@ -305,7 +291,7 @@ void loop()
           }
           else {
             span=tempspan;
-            z_latch_span=span;  //copy into latch buffer incase a new color comes in while gestureing
+            z_mode_span=span;  //copy into latch buffer incase a new color comes in while gestureing
             last_set_span = span;
             tempspan = tempspan +512;
             Serial.write(SET_SPAN);
@@ -324,7 +310,7 @@ void loop()
           brightness = serialbuffer[2]-127;
           last_set_fade=fade;
           if (fade == 0){
-            currentmode=0;
+            disc_mode = 0;
           }
           Serial.write(SET_FADE_BRIGHTNESS);
           Serial.write(fade+8);
@@ -346,19 +332,16 @@ void loop()
     }
   }
 
-
+  //accelerometer math
   int x_absolute,y_absolute,z_absolute;
   adxl.readAccel(&x_absolute, &y_absolute, &z_absolute); 
 
-  //calculate X 
   int x_relative = x_absolute - previous_x_absolute;
   x_filtered = x_filtered * .95 +x_relative; 
 
-  //calculate Y 
   int y_relative= y_absolute - previous_y_absolute;
   y_filtered = y_filtered * .95 + y_relative; 
 
-  //calculate Z 
   int z_relative = z_absolute - previous_z_absolute;
   z_filtered = z_filtered *.9 + z_relative ; 
 
@@ -370,223 +353,230 @@ void loop()
 
 
 
-  if ((z_latch !=3 && z_latch !=4 )) {
+  if ((z_mode !=3 && z_mode !=4 )) {
     if  (xy_angle == previous_xy_angle) { //angle must go in the same direction
       if (xy_filtered_magnitude > previous_xy_filtered_magnitude && xy_filtered_magnitude > 150){  //filtered magnitude must be strong and rising 
         idle_timer=millis();
-        angle = xy_filtered_angle;
-        if (fade < 7){   //swipe
+        z_mode = 0;
+        if (fade < 7 && disc_mode != 6){ //keep locked in mode 6
           magnitude = map(xy_filtered_magnitude,150,225,1,4);
-          currentmode  = 1;  //normal swipe
+          disc_mode  = 1;  //normal swipe
+          angle = xy_filtered_angle;
         }
-        else{ //pacman open
-          span =0;
-          fade =0;
-          instantspan = 0;
-          brightness = 127;
-          color=192;
-          for(magnitude=0; magnitude<10; magnitude++ ){
-            updatearray();
-            strip.showCompileTime<ClockPin, DataPin>(); 
-            delay(50);
-          }
-
-          z_latch = 0;
-          currentmode=0;
+        else if (fade == 7 && disc_mode != 6){ //dont reenter
+          disc_mode = 6; //pacman open
+          z_mode_angle = xy_filtered_angle; //start at hand side
         }
-        swipetime = millis();
-      }
-    }
-
-    //enter mode with force of 40 from swipe mode, or 10 once in the mode
-    if ( (xy_filtered_magnitude > 10 && currentmode == 2 ) || (xy_filtered_magnitude > 100 &&  currentmode ==1 && (swipetime + 100 < millis()) ) ){ 
-      //spin mode
-      currentmode  = 2;
-      angle = xy_filtered_angle;
-      magnitude =map(xy_filtered_magnitude,20,100,1,3);
-      idle_timer=millis();
-    }
-  }
-
-  //detect high z motion
-  if(abs(z_filtered) > 100) {  //enter mode 0 
-    if(currentmode != 0) {
-      z_latch_time_cooldown = millis();
-      currentmode = 0;
-      z_latch = 0;
-    }
-    if (z_latch == 1){  //enable latched mode
-      z_latch_time_cooldown = millis();
-      z_latch_angle = xy_angle;
-      z_latch = 2;
-      idle_timer=millis();
-    }
-    else if (z_latch == 3 ||  z_latch == 4){  //disable latched mode
-      z_latch_time_cooldown = millis();
-      z_latch =0;
-      tap_time = millis();
-    }
-  }
-  //detect low z motion 
-  else if(abs(z_filtered) <10 &&  z_latch_time_cooldown + 500 < millis()) {  
-    if (z_latch == 0){
-      z_latch = 1;
-    }
-    if (z_latch == 2){
-      rotation_status =0;
-      z_latch = 3;
-      tap_time = millis();
-    }
-  }
-
-
-  if (currentmode == 0){
-    magnitude = 9;
-    //z is 128 at horizontal (over 96) and below 32 (near 0 at verticle)
-    //use absolute x and y and then add in filter x and y for exaggeration of movement
-
-    //addin relative movenet proprtioanlly to angle
-    int  z_absolute_ratio= abs(constrain(abs(z_absolute),0,128)-128) >>4;
-
-    //deadzone to help remove jitter
-    if (abs(x_absolute-previous_x_absolute) >1||  abs(y_absolute-previous_y_absolute) >1){
-      angle = (int)(floor(((atan2(y_absolute+y_filtered*z_absolute_ratio,x_absolute+x_filtered*z_absolute_ratio) *2.54)+8.5))) % 16;
-    }
-
-    //color rotate code is 3, span rotate is 4
-    if(z_latch ==3 || z_latch ==4 ){
-
-      //cancel latch on z tilt over 100, but allow z accelerations
-      if (abs(z_absolute) > (abs(z_filtered )+1)*100){
-        z_latch =0;
-
-      }
-      int z_latch_angle_difference;
-
-      //find shortest path around circle to get between the starting and ending point
-      if((( xy_angle - z_latch_angle + 16) % 16) < 8){
-        z_latch_angle_difference= z_latch_angle - xy_angle;
-        if (z_latch_angle_difference < -8){
-          z_latch_angle_difference = z_latch_angle_difference +16;
-        } 
-        else if (z_latch_angle_difference > 8){
-          z_latch_angle_difference =z_latch_angle_difference -16;
-        }
-      }
-      else {
-        z_latch_angle_difference= xy_angle - z_latch_angle;
-
-        if (z_latch_angle_difference < -8){
-          z_latch_angle_difference = z_latch_angle_difference +16;
-        } 
-        else if (z_latch_angle_difference > 8){
-          z_latch_angle_difference =z_latch_angle_difference -16;
-        }
-        z_latch_angle_difference=  z_latch_angle_difference*-1;
-      }
-
-      // if we did a rotation swap modes (color and span)
-      if(abs(z_latch_angle_difference) == 8){
-        z_latch_span = span;  //init span rotate
-        z_latch_angle = (z_latch_angle + 8) %16;
-        z_latch =4;
-      }
-
-      if (z_latch ==3){ //color change code
-        if(rotation_status ==0 && z_latch_angle_difference == 0){  //init color rotate
-          z_latch_color = color;
-          overlaytimer = 30;
-          rotation_status =1;  
-        }
-        if(rotation_status == 1){
-          color =z_latch_color + z_latch_angle_difference*16;
-          color = (color + 384) % 384;
-          if(abs( z_latch_angle_difference) == 4){  //finish color rotate
-            overlaytimer = 30;
-            rotation_status =0;  
-          }
-        }
-      }
-      else if  (z_latch ==4){ //span change code
-
-        span =  z_latch_span + abs(z_latch_angle_difference)*32;
-
-        //latch span to increments of 100 
-        if ( (z_latch_span -(z_latch_span % 128))  > span){
-          span = z_latch_span -(z_latch_span % 128);
-        }
-        else if ( (z_latch_span -(z_latch_span % 128) +128)  < span){
-          span =z_latch_span -(z_latch_span % 128) +128;
-        }
-
-        //wrap span to circle
-        span =(span+512) % 512;
-
-        if(abs( z_latch_angle_difference) == 4){  //finish span rotate
-          z_latch = 3;
-          z_latch_angle = (z_latch_angle + 8) %16;
-        }
+        disc_mode_timer = millis();
       }
     }
   }
 
-  if(camera_mode == 0){
+  //these two bits of code increment and decrement z_mode during periods of high and low z motion
+  //its kind of like tap detection, but is more reliable and gives more control
 
-    //updates the strip
-    //i must be global for rainbow colors
-    //angle is 0 to 15  22.5 degrees each
-    //magnitude is 0 to 9  0 is blank, 9 is full
-    updatearray();
-
-    //overlay code
-    if (z_latch ==3){
-      if (overlaytimer > 0){
-        overlaytimer--;
+  //detect high z motion when not in camera modes
+  if(abs(z_filtered) > 100 && disc_mode < 3 ) {
+    //if in mode 1 or 2, enter mode 0
+    if(disc_mode ==1 || disc_mode ==2 ) {
+      z_mode_time_cooldown = millis();
+      disc_mode = 0;
+      z_mode = 0;
+    }
+    //if already in mode 0
+    else if (disc_mode ==0 ){
+      //if we are in overlay mode and get high z motion enable overlay mode on next low motion 
+      if (z_mode == 1){  
+        z_mode_time_cooldown = millis();
+        z_mode_angle = xy_angle;
+        z_mode = 2;
         idle_timer=millis();
-      } 
-      else{
-        strip.setPixelColor(z_latch_angle ,0);
-        strip.setPixelColor((z_latch_angle + 8) % 16,0);
+      }
+      //if we are in overlay mode and get high z motion disable overlay
+      else if (z_mode == 3 ||  z_mode == 4){  
+        z_mode_time_cooldown = millis();
+        tripletap_time = millis();
+        z_mode =0;
       }
     }
-    else  if (z_latch ==4 ){
-      strip.setPixelColor(z_latch_angle ,Wheel(384));
-      strip.setPixelColor((z_latch_angle + 8) % 16,Wheel(384));
+  }
+
+  //detect low z motion 
+  else if(abs(z_filtered) <10 &&  z_mode_time_cooldown + 200 < millis()) {  
+    //enable idle mode from overlay
+    if (z_mode == 0){
+      z_mode = 1;
+    }
+    //enable overlay from idle
+    else if (z_mode == 2){
+      rotation_status =0;
+      z_mode = 3;
     }
   }
-  else{
-    unsigned long temp_time = constrain(millis()-camera_mode_timer,0,1000);
-    if (camera_mode == 1){
+
+  if (fade == 7&& disc_mode != 6){
+    disc_mode=0; 
+    z_mode = 1;
+  }
+
+  if ( (xy_filtered_magnitude > 10 && disc_mode == 2 ) || (xy_filtered_magnitude > 100 && disc_mode ==1 && (disc_mode_timer + 100 < millis()) ) ){
+    //spin mode
+    disc_mode = 2;
+    angle = xy_filtered_angle;
+    magnitude =map(xy_filtered_magnitude,20,100,1,3);
+    idle_timer=millis();
+  }
+
+
+  switch(disc_mode){
+  case 0: //normal idle mode, what the gui gets overlayed above. 
+    {
+      magnitude = 9;
+      //z is 128 at horizontal (over 96) and below 32 (near 0 at verticle)
+      //use absolute x and y and then add in filter x and y for exaggeration of movement
+
+      //addin relative movenet proprtioanlly to angle
+      int  z_absolute_ratio= abs(constrain(abs(z_absolute),0,128)-128) >>4;
+
+      //deadzone to help remove jitter
+      if (abs(x_absolute-previous_x_absolute) >1||  abs(y_absolute-previous_y_absolute) >1){
+        angle = (int)(floor(((atan2(y_absolute+y_filtered*z_absolute_ratio,x_absolute+x_filtered*z_absolute_ratio) *2.54)+8.5))) % 16;
+      }
+
+      //color rotate code is 3, span rotate is 4
+      if(z_mode ==3 || z_mode ==4 ){
+
+        //cancel latch on z tilt over 100, but allow z accelerations
+        if (abs(z_absolute) > (abs(z_filtered )+1)*100){
+          z_mode =0;
+
+        }
+        int z_mode_angle_difference;
+
+        //find shortest path around circle to get between the starting and ending point
+        if((( xy_angle - z_mode_angle + 16) % 16) < 8){
+          z_mode_angle_difference= z_mode_angle - xy_angle;
+          if (z_mode_angle_difference < -8){
+            z_mode_angle_difference = z_mode_angle_difference +16;
+          } 
+          else if (z_mode_angle_difference > 8){
+            z_mode_angle_difference =z_mode_angle_difference -16;
+          }
+        }
+        else {
+          z_mode_angle_difference= xy_angle - z_mode_angle;
+
+          if (z_mode_angle_difference < -8){
+            z_mode_angle_difference = z_mode_angle_difference +16;
+          } 
+          else if (z_mode_angle_difference > 8){
+            z_mode_angle_difference =z_mode_angle_difference -16;
+          }
+          z_mode_angle_difference=  z_mode_angle_difference*-1;
+        }
+
+        // if we did a rotation swap modes (color and span)
+        if(abs(z_mode_angle_difference) == 8){
+          z_mode_span = span;  //init span rotate
+          z_mode_angle = (z_mode_angle + 8) %16;
+          z_mode =4;
+        }
+
+        if (z_mode ==3){ //color change code
+          if(rotation_status ==0 && z_mode_angle_difference == 0){  //init color rotate
+            z_mode_color = color;
+            overlaytimer = 30;
+            rotation_status =1;  
+          }
+          if(rotation_status == 1){
+            color =z_mode_color + z_mode_angle_difference*16;
+            color = (color + 384) % 384;
+            if(abs( z_mode_angle_difference) == 4){  //finish color rotate
+              overlaytimer = 30;
+              rotation_status =0;  
+            }
+          }
+        }
+        else if  (z_mode ==4){ //span change code
+
+          span =  z_mode_span + abs(z_mode_angle_difference)*32;
+
+          //latch span to increments of 100 
+          if ( (z_mode_span -(z_mode_span % 128))  > span){
+            span = z_mode_span -(z_mode_span % 128);
+          }
+          else if ( (z_mode_span -(z_mode_span % 128) +128)  < span){
+            span =z_mode_span -(z_mode_span % 128) +128;
+          }
+
+          //wrap span to circle
+          span =(span+512) % 512;
+
+          if(abs( z_mode_angle_difference) == 4){  //finish span rotate
+            z_mode = 3;
+            z_mode_angle = (z_mode_angle + 8) %16;
+          }
+        }
+      }
+
+      updatearray();
+
+      //overlay code
+      if (z_mode ==3){
+        if (overlaytimer > 0){
+          overlaytimer--;
+          idle_timer=millis();
+        } 
+        else{
+          strip.setPixelColor(z_mode_angle ,0);
+          strip.setPixelColor((z_mode_angle + 8) % 16,0);
+        }
+      }
+      else  if (z_mode ==4 ){
+        strip.setPixelColor(z_mode_angle ,Wheel(384));
+        strip.setPixelColor((z_mode_angle + 8) % 16,Wheel(384));
+      }
+    }
+    break;
+  case 1:  //single swipe mode
+  case 2: //spin mode
+    updatearray();
+    break;
+  case 3: //camera opening
+    {
+      unsigned long temp_time = constrain(millis()-disc_mode_timer,0,1000);
       fade=0;
       span=0;
       instantspan=0;
-      z_latch = 1;
+      z_mode = 1;
 
       byte temp = map(temp_time,0,1000,0,16);
       for(byte i=0; i<temp; i++) {
         //start at top of disc and work around
-        strip.setPixelColor((i+z_latch_angle+8 )%16,Wheel(384)); // Set new pixel 'on'
+        strip.setPixelColor((i+z_mode_angle+8 )%16,Wheel(384)); // Set new pixel 'on'
       }
       if (temp_time == 1000){
-        camera_mode++;
+        disc_mode++;
         digitalWrite(LIGHTS, HIGH);
         CS.read();
-        camera_mode_timer=millis();
+        disc_mode_timer=millis();
       }
     }
-    else if (camera_mode == 2){
+    break;
+  case 4: //camera on
+    {
       if ( CS.available()){
         colorData	rgb;
         sensorData	sd;
         CS.getRaw(&sd);	
         CS.getRGB(&rgb);
         digitalWrite(LIGHTS, LOW);
-        
-        //if dark, shut down
-        if (sd.value[TCS230_RGB_R]+sd.value[TCS230_RGB_G]+sd.value[TCS230_RGB_B] <400){ 
 
+        //if dark, shut down
+        if (sd.value[TCS230_RGB_R]+sd.value[TCS230_RGB_G]+sd.value[TCS230_RGB_B] <200){ 
           fade=7;
-          camera_mode=0;
+          disc_mode=0;
+          z_mode = 1;
         }
         else{
           //if color is flooded, ignore
@@ -594,29 +584,57 @@ void loop()
             //if too white, ignore
             if (sd.value[TCS230_RGB_R]+sd.value[TCS230_RGB_G]+sd.value[TCS230_RGB_B] < 12000){
               color = RGBtoHSV(rgb.value[TCS230_RGB_R],rgb.value[TCS230_RGB_G],rgb.value[TCS230_RGB_B]);
+              last_set_color=color; //supress sending color
               span=0;
             }
           }
-          camera_mode++;
-          camera_mode_timer=millis();
+          disc_mode++;
+          disc_mode_timer=millis();
         }
       }
-    } 
-    else if (camera_mode == 3){
+    }
+    break;
+  case 5: //camera closing
+    {
+      unsigned long temp_time = constrain(millis()-disc_mode_timer,0,1000);
       byte temp = map(temp_time,0,1000,0,16);
       for(int i=temp; i>-1; i--) {
-        strip.setPixelColor((i +z_latch_angle+8)%16,Wheel(color)); // Set new pixel 'on'
+        strip.setPixelColor((i +z_mode_angle+8)%16,Wheel(color)); // Set new pixel 'on'
       }
       if (temp_time == 1000){
-        camera_mode=0;
+        disc_mode = 0;
+        z_mode = 1;
+        last_set_color = -1; //force sending color at close
       }
     }
+    break;
+  case 6: //pacman open
+    {
+      unsigned long temp_time = constrain(millis()-disc_mode_timer,0,500);
+      magnitude = map(temp_time,0,500,0,9);
+      span = 0;
+      fade = 0;
+      angle = z_mode_angle;
+      instantspan = 0;
+      brightness = 127;
+      color = 192; //tron color cyan
+      last_set_fade = fade; //supress sending fade
+      updatearray();
+      if (temp_time == 500){
+        disc_mode = 0;
+        z_mode = 1;
+        last_set_fade = 8; //force sending color at close
+      }
+    }
+    break;
+  default: //we shouldnt get here ever
+    disc_mode = 0;
   }
 
   strip.showCompileTime<ClockPin, DataPin>(); 
 
-  //serial write
-  if(millis()-lastupdate >50){
+  //serial data write
+  if(millis()-last_update >50){
     if (last_set_color != color){
       Serial.write(SET_COLOR);
       Serial.write((color >> 6) & 0xFE); //transmit higher bits
@@ -632,7 +650,7 @@ void loop()
       Serial.write(fade); //data small enough (0-7)it wont collide
       Serial.write(brightness+127); //not used, but needed for padding
     }
-    lastupdate=millis();
+    last_update=millis();
   }
 
   //store values for next cycle use - not all being used
@@ -661,6 +679,16 @@ void updatearray(){
       strip.setPixelColor(i ,0);
     }
   }
+
+  //if the battery is low blank all but 4 LEDs
+  if (disc_voltage < 650){
+    for(int i=0; i<strip.numPixels(); i++) {
+      if (i%4 != 0){
+        strip.setPixelColor(i,0); 
+      }
+    }
+  }
+
 }
 
 
@@ -782,3 +810,10 @@ uint32_t Wheel(uint16_t WheelPos){
   b = b*brightness/127;
   return(strip.Color(r >> fade ,g >> fade,b >> fade));
 }
+
+
+
+
+
+
+

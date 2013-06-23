@@ -1,45 +1,22 @@
-
 #include "LPD8806.h"
 #include "SPI.h"
 #include <Wire.h>
 #include <ADXL345.h>
 #include <MovingAverage2.h>
-
 #include <MD_TCS230.h>
 #include <FreqCount.h>
 
-
 #define spanrange 64 //half range of the span gesture
 
-// Example to control LPD8806-based RGB LED Modules in a strip
-
-/*****************************************************************************/
-
-// Number of RGB LEDs in strand:
-int nLEDs = 16;
-
-// Chose 2 pins for output; can be any valid output pins:
 const int ClockPin = 13;
 const int DataPin = 12;
-
-
-
-// First parameter is the number of LEDs in the strand.  The LED strips
-// are 32 LEDs per meter but you can extend or cut the strip.  Next two
-// parameters are SPI data and clock pins:
 LPD8806 strip = LPD8806(16, DataPin, ClockPin);
 ADXL345 adxl;
-// You can optionally use hardware SPI for faster writes, just leave out
-// the data and clock pin parameters.  But this does limit use to very
-// specific pins on the Arduino.  For "classic" Arduinos (Uno, Duemilanove,
-// etc.), data = pin 11, clock = pin 13.  For Arduino Mega, data = pin 51,
-// clock = pin 52.  For 32u4 Breakout Board+ and Teensy, data = pin B2,
-// clock = pin B1.  For Leonardo, this can ONLY be done on the ICSP pins.
-//LPD8806 strip = LPD8806(nLEDs);
 
 //disc
 #define SET_COLOR 0x11
 int last_set_color=0;
+
 #define SET_SPAN 0x13
 int last_set_span=0;
 
@@ -48,20 +25,19 @@ byte last_set_brightness=127;
 byte last_set_fade=0;
 
 //these two can overlap
-#define SET_RAINBOW 0x19  //no confirmation needed
-#define TRIPLE_TAP 0x19  //no sending needed
+#define SET_RAINBOW 0x19 //only recieved from suit
+#define TRIPLE_TAP 0x19  //only sent to suit
+unsigned long  tripletap_time = 0;
 
-#define BATTERY_LEVEL 0x1B  
+#define BATTERY_LEVEL 0x1B  //only sent to suit
 
-//serial buffers
+//serial buffer
 byte serialbuffer[3];
 byte serialbufferpointer = 0;
 
-
-//index for strip  global for the rainbow effects
+//index for strip - global for the rainbow effects
 int i = 0;
-int rainbowoffset=383;
-
+int rainbowoffset = 383;
 
 #define LIGHTS 3
 
@@ -107,14 +83,12 @@ int z_mode_color = 0;  //color at time of first latch
 int z_mode_angle = -1; //angle of first latch -1 means hasnt occured yet
 unsigned long z_mode_time_cooldown = 0; //time of first latch for input debounce
 byte z_mode = 1; //keeps track of latching status
-byte rotation_status  =0;  
-int z_mode_span;
+byte rotation_status = 0;  
+int z_mode_span = 0;
 
 //overlay
 int overlaytimer = 0;  //blinks the LED for modes
 
-
-unsigned long  tripletap_time=0;
 void setup()
 {
 
@@ -200,10 +174,10 @@ void loop()
 {
 
 
-  //idle timeout
-  if (millis()- idle_timer > 10000){
+  //reset on idle timeout and on full fade
+  if (millis()- idle_timer > 10000 || fade == 7 ){
+    disc_mode = 0;
     z_mode = 1;
-    disc_mode=0;
   }
 
   //battery level check
@@ -233,6 +207,8 @@ void loop()
     else{
       if (disc_mode > 2){
         disc_mode = 0;
+        z_mode = 1;
+        digitalWrite(LIGHTS, LOW);
       }
       else{
         disc_mode = 3;
@@ -353,14 +329,14 @@ void loop()
 
 
 
-  if ((z_mode !=3 && z_mode !=4 )) {
+  if ((z_mode !=3 && z_mode !=4 ) && disc_mode < 3) {
     if  (xy_angle == previous_xy_angle) { //angle must go in the same direction
       if (xy_filtered_magnitude > previous_xy_filtered_magnitude && xy_filtered_magnitude > 150){  //filtered magnitude must be strong and rising 
         idle_timer=millis();
         z_mode = 0;
         if (fade < 7 && disc_mode != 6){ //keep locked in mode 6
           magnitude = map(xy_filtered_magnitude,150,225,1,4);
-          disc_mode  = 1;  //normal swipe
+          disc_mode = 1;  //normal swipe
           angle = xy_filtered_angle;
         }
         else if (fade == 7 && disc_mode != 6){ //dont reenter
@@ -378,7 +354,7 @@ void loop()
   //detect high z motion when not in camera modes
   if(abs(z_filtered) > 100 && disc_mode < 3 ) {
     //if in mode 1 or 2, enter mode 0
-    if(disc_mode ==1 || disc_mode ==2 ) {
+    if(disc_mode == 1 || disc_mode == 2 ) {
       z_mode_time_cooldown = millis();
       disc_mode = 0;
       z_mode = 0;
@@ -413,20 +389,6 @@ void loop()
       z_mode = 3;
     }
   }
-
-  if (fade == 7&& disc_mode != 6){
-    disc_mode=0; 
-    z_mode = 1;
-  }
-
-  if ( (xy_filtered_magnitude > 10 && disc_mode == 2 ) || (xy_filtered_magnitude > 100 && disc_mode ==1 && (disc_mode_timer + 100 < millis()) ) ){
-    //spin mode
-    disc_mode = 2;
-    angle = xy_filtered_angle;
-    magnitude =map(xy_filtered_magnitude,20,100,1,3);
-    idle_timer=millis();
-  }
-
 
   switch(disc_mode){
   case 0: //normal idle mode, what the gui gets overlayed above. 
@@ -536,10 +498,22 @@ void loop()
         strip.setPixelColor(z_mode_angle ,Wheel(384));
         strip.setPixelColor((z_mode_angle + 8) % 16,Wheel(384));
       }
+      break;
     }
-    break;
   case 1:  //single swipe mode
+    if (xy_filtered_magnitude > 100 && disc_mode_timer + 100 < millis()){
+      disc_mode = 2; //fall through to disc_mode 2
+    }
+    else {
+      updatearray();
+      break;
+    }
   case 2: //spin mode
+    if (xy_filtered_magnitude > 10 ) {
+      angle = xy_filtered_angle;
+      magnitude =map(xy_filtered_magnitude,20,100,1,3);
+      idle_timer=millis();
+    }
     updatearray();
     break;
   case 3: //camera opening
@@ -561,11 +535,11 @@ void loop()
         CS.read();
         disc_mode_timer=millis();
       }
+      break;
     }
-    break;
   case 4: //camera on
     {
-      if ( CS.available()){
+      if (CS.available()){
         colorData	rgb;
         sensorData	sd;
         CS.getRaw(&sd);	
@@ -574,8 +548,8 @@ void loop()
 
         //if dark, shut down
         if (sd.value[TCS230_RGB_R]+sd.value[TCS230_RGB_G]+sd.value[TCS230_RGB_B] <200){ 
-          fade=7;
-          disc_mode=0;
+          fade = 7;
+          disc_mode = 0;
           z_mode = 1;
         }
         else{
@@ -606,8 +580,8 @@ void loop()
         z_mode = 1;
         last_set_color = -1; //force sending color at close
       }
+      break;
     }
-    break;
   case 6: //pacman open
     {
       unsigned long temp_time = constrain(millis()-disc_mode_timer,0,500);
@@ -625,10 +599,11 @@ void loop()
         z_mode = 1;
         last_set_fade = 8; //force sending color at close
       }
+      break;
     }
-    break;
   default: //we shouldnt get here ever
     disc_mode = 0;
+    z_mode = 1;
   }
 
   strip.showCompileTime<ClockPin, DataPin>(); 
@@ -682,7 +657,7 @@ void updatearray(){
 
   //if the battery is low blank all but 4 LEDs
   if (disc_voltage < 650){
-    for(int i=0; i<strip.numPixels(); i++) {
+    for(byte i=0; i<strip.numPixels(); i++) {
       if (i%4 != 0){
         strip.setPixelColor(i,0); 
       }
@@ -810,6 +785,11 @@ uint32_t Wheel(uint16_t WheelPos){
   b = b*brightness/127;
   return(strip.Color(r >> fade ,g >> fade,b >> fade));
 }
+
+
+
+
+
 
 
 

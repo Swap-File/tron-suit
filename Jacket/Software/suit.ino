@@ -220,7 +220,7 @@ void setup() {
   strip_buffer_4.begin();
   nunchuk.init();
   Serial.begin(115200);  //debug
-  Serial1.begin(115200);  //Wixel
+
   Serial2.begin(115200);  //BT
   Serial3.begin(115200);  //Helmet 
 
@@ -962,35 +962,23 @@ void loop() {
     }
   case 5:
     {
-      suit_brightness = 127;
-      byte tempytilt = map(ytilt, 0,254,0, 21);
+      int tempytilt = map(ytilt, 0, 254,0, 19);
+      int instantspan1 = map(tempytilt,0,19,SpanWheel(span),0);
+      int instantspan2 =  map(tempytilt,0,19,0,SpanWheel(span));
 
-      for( i=0; i<strip_buffer_2.numPixels(); i++) strip_buffer_2.setPixelColor(i, 0);
-      instantspan =  map(tempytilt,0,21,SpanWheel(span),0);
-      if (tempytilt < 21 and tempytilt >0)  strip_buffer_2.setPixelColor(tempytilt-1, Wheel(color));
-
-      for( i=0; i<strip_buffer_1.numPixels(); i++) strip_buffer_1.setPixelColor(i, 0);
-      instantspan =  map(tempytilt,0,21,0,SpanWheel(span));
-      if (tempytilt < 21 and tempytilt >0)  strip_buffer_1.setPixelColor(tempytilt-1, Wheel(color));
+      for( i=0; i<strip_buffer_2.numPixels(); i++) {
+        instantspan= instantspan1;
+        suit_brightness = map(constrain(2*abs(tempytilt-i),0,19),0,19,127,2);
+        strip_buffer_2.setPixelColor(i, Wheel(color));
+        instantspan= instantspan2;
+        strip_buffer_1.setPixelColor(i, Wheel(color));
+      }
       break;
     }
   case 6:
     {
-      suit_brightness=127;
 
-      int tempytilt = map(ytilt, 0, 254,0, 21)-1;
 
-      for( i=0; i<strip_buffer_2.numPixels(); i++) {
-        suit_brightness = map(abs(tempytilt-i),0,19,0,127);
-        instantspan = map(tempytilt,-1,20,SpanWheel(span),0);
-        strip_buffer_2.setPixelColor(i, Wheel(color));
-      }
-
-      for( i=0; i<strip_buffer_1.numPixels(); i++){
-        suit_brightness = map(abs(tempytilt-i),0,19,0,127);
-        instantspan =  map(tempytilt,-1,20,0,SpanWheel(span));
-        strip_buffer_1.setPixelColor(i, Wheel(color));
-      }
 
       break;
     }
@@ -1534,6 +1522,8 @@ void readserial(){
       case TRIPLE_TAP:
         {
           switch(effect_mode){
+            effectbuffer_mode=0;
+            output_mode = 0;
           case 0:
             effect_mode = 8;
             break;
@@ -1665,17 +1655,17 @@ void readserial(){
         fade = 0;
         break;
       case TEXTING_REPLY:
-          Serial2.println(color); //COLOR1
-          Serial2.println(SpanWheel(span));//COLOR2
-          Serial2.println(fps_last); //FPS
-          Serial2.println(bpm_period);  //BPM
-          Serial2.println(jacket_voltage); //voltage
-          Serial2.println(disc_voltage); //voltage
-          Serial2.println(millis()); //uptime
-          Serial2.println(beats);
-          Serial2.println(eeprom_time_starting); //minutes
-          Serial2.println(eeprom_beats_starting);
-          break;
+        Serial2.println(color); //COLOR1
+        Serial2.println(SpanWheel(span));//COLOR2
+        Serial2.println(fps_last); //FPS
+        Serial2.println(bpm_period);  //BPM
+        Serial2.println(jacket_voltage); //voltage
+        Serial2.println(disc_voltage); //voltage
+        Serial2.println(millis()); //uptime
+        Serial2.println(beats);
+        Serial2.println(eeprom_time_starting); //minutes
+        Serial2.println(eeprom_beats_starting);
+        break;
       default:
         serial2buffer[0] = 0xff;
       }
@@ -2195,7 +2185,7 @@ void updatedisplay(){
     Serial3.print(effectbuffer_mode);
     Serial3.print(" ");
     char temp[15];
-    sprintf(temp, "R%03d G%03d B%03d", r, g, b);
+    sprintf(temp, "R%03d G%03d B%03d", r*2, g*2, b*2);
     Serial3.print(temp);
     Serial3.print(" ");
     Serial3.print(output_mode);
@@ -2401,6 +2391,12 @@ void updatedisplay(){
   fade = tempfade;
   suit_brightness = tempbrightness;
 }
+
+
+
+
+
+
 
 
 

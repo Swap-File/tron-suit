@@ -91,6 +91,7 @@ int rainbowoffset = 383;
 unsigned int xtilt;
 unsigned int ytilt;
 byte ytilt_one_way=0;
+int ytilt_auto=0;
 unsigned long ytilt_one_way_timer=0;
 //keeps track of how long its been since last pump, and blinks indicator if its been "too" long
 
@@ -98,6 +99,8 @@ unsigned long ytilt_one_way_timer=0;
 
 //displaying gesture data on lcd
 boolean beat_completed=false;
+boolean beat_completed_raw = false;
+boolean beat_completed_auto =false;
 //overlay duration variable
 unsigned int overlay_duration;
 unsigned long overlay_starting_time=0;
@@ -220,7 +223,7 @@ void setup() {
   strip_buffer_4.begin();
   nunchuk.init();
   Serial.begin(115200);  //debug
-
+  Serial1.begin(115200);  //Wixel
   Serial2.begin(115200);  //BT
   Serial3.begin(115200);  //Helmet 
 
@@ -1778,23 +1781,41 @@ void nunchuckparse(){
   xtilt = constrain(xtilt, 350, 650);
   xtilt= map(xtilt, 350, 650,0, 254);
 
-  if (auto_pump == true){
-    ytilt = map((millis()-bpm_starting_time )% (bpm_period >> auto_pump_multiplier), 0, (bpm_period >> auto_pump_multiplier), 0,254);
-    ytilt = ytilt * 4;
-    if( ytilt < 256){
-      ytilt = 0;
-    }
-    else{
-      ytilt = ytilt -256;
-      if( ytilt > 254){
-        ytilt = 254;
-      }
-    }
+  ytilt = yfilter.process(nunchuk.accelY);
+  ytilt = constrain(ytilt, 500, 600);
+  ytilt = map(ytilt, 500, 600,0, 254);
+
+  //calculate auto value
+  ytilt_auto = map((millis()-bpm_starting_time )% (bpm_period >> auto_pump_multiplier), 0, (bpm_period >> auto_pump_multiplier), 0,254);
+  ytilt_auto = ytilt_auto * 4;
+  if( ytilt_auto < 256){
+    ytilt_auto = 0;
   }
   else{
-    ytilt = yfilter.process(nunchuk.accelY);
-    ytilt = constrain(ytilt, 500, 600);
-    ytilt = map(ytilt, 500, 600,0, 254);
+    ytilt_auto = ytilt_auto -256;
+    if( ytilt_auto > 254){
+      ytilt_auto = 254;
+    }
+  }
+
+  //indicator for raw
+  if (ytilt == 0){
+    beat_completed_raw=false;
+  }
+  else if(ytilt == 254){
+    beat_completed_raw=true;
+  }
+  //indicator for auto
+  if (ytilt_auto == 0){
+    beat_completed_auto=false;
+  }
+  else if(ytilt_auto == 254){
+    beat_completed_auto=true;
+  }
+
+  //reassign ytilt to raw or auto based on autopump mode
+  if (auto_pump == true){
+    ytilt = ytilt_auto;
   }
 
   if (ytilt == 0){
@@ -1804,7 +1825,7 @@ void nunchuckparse(){
     ytilt_one_way = 0;
 
     //run oncon peak of pump
-    if(beat_completed== true){
+    if(beat_completed == true){
 
       switch(auto_pump_mode){
       case 0:
@@ -1852,7 +1873,7 @@ void nunchuckparse(){
         bpm_period = constrain(bpm_period,200,1000);
 
         //filter the bpm
-        bpm_period = bpm_period * .5 + (millis()-bpm_starting_time) *.5;
+        bpm_period = bpm_period * .6 + (millis()-bpm_starting_time) *.4;
         bpm_starting_time= millis(); 
       }
 
@@ -1958,7 +1979,7 @@ void nunchuckparse(){
       beats++;
       ytilt_one_way_timer = millis();
     }
-    beat_completed=true;
+    beat_completed = true;
   }
 
   ytilt_one_way = max(ytilt_one_way,ytilt);  
@@ -2340,6 +2361,7 @@ void updatedisplay(){
   }
 
   //LED4 - motion status
+  
   //idle mode is just blank, EQ modes are xtilt based, Motion modes are beat based
   if( effect_mode != 8){
     if (effect_mode == 0 || effect_mode == 1){  
@@ -2357,6 +2379,7 @@ void updatedisplay(){
         }     
       }
     } 
+    
     //fist pump modes
     else {  
       //if timer has ran out, set off alarm
@@ -2368,8 +2391,23 @@ void updatedisplay(){
       }
       //otherwise just display the current beat  status
       else{
-        if (beat_completed == true){
-          bitSet(gpio,3);
+        //force display of raw ytilt data if up is pressed (prepping to exit auto mode)
+        if (dpad == DPAD_UP){
+          if (beat_completed_raw == true){
+            bitSet(gpio,3);
+          }
+        }
+        //force display of auto ytilt data if up is pressed (prepping to enter auto mode)
+        else if (dpad == DPAD_DOWN){
+          if (beat_completed_auto == true){
+            bitSet(gpio,3);
+          }
+        }
+        //normal display of ytilt data
+        else{
+          if (beat_completed == true){
+            bitSet(gpio,3);
+          }
         }
       }
     }
@@ -2391,12 +2429,3 @@ void updatedisplay(){
   fade = tempfade;
   suit_brightness = tempbrightness;
 }
-
-
-
-
-
-
-
-
-

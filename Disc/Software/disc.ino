@@ -785,15 +785,3 @@ uint32_t Wheel(uint16_t WheelPos){
   b = b*brightness/127;
   return(strip.Color(r >> fade ,g >> fade,b >> fade));
 }
-
-
-
-
-
-
-
-
-
-
-
-

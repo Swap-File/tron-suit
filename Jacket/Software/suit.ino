@@ -947,19 +947,28 @@ void loop() {
       }
       else{
         //fade out
-        instantspan =  0;
-        for(int i=0; i<tempytilt; i++){
-          suit_brightness = map(abs(tempytilt-i),0,21,127,0); //21 so the last LED doesnt go out
-          suit_brightness= map(constrain(millis()-ytilt_one_way_timer,0,100),0,100,suit_brightness,0);
-          strip_buffer_2.setPixelColor(i,  Wheel(color));
+        byte tempytilt = map(constrain(millis()-ytilt_one_way_timer,0,100),0,100,0,19);
+
+        instantspan =  0; 
+        for(int i=0; i<20; i++){
+          if(i>tempytilt){
+            strip_buffer_2.setPixelColor(i,  Wheel(color));
+          }
+          else{
+            strip_buffer_2.setPixelColor(i,  0);
+          }
         }
 
         instantspan =  SpanWheel(span);
-        for(int i=0; i<tempytilt; i++){
-          suit_brightness = map(abs(tempytilt-i),0,21,127,0); //21 so the last LED doesnt go out
-          suit_brightness= map(constrain(millis()-ytilt_one_way_timer,0,100),0,100,suit_brightness,0);
-          strip_buffer_1.setPixelColor(i,  Wheel(color));
+        for(int i=0; i<20; i++){
+          if(i>tempytilt){
+            strip_buffer_1.setPixelColor(i,  Wheel(color));
+          }
+          else{
+            strip_buffer_1.setPixelColor(i,  0);
+          }
         }
+
       }
       break;
     }
@@ -980,10 +989,67 @@ void loop() {
     }
   case 6:
     {
+      suit_brightness=127;    
+      byte tempytilt = map(ytilt, 0, 254,0, 9);
+
+      if(beat_completed==false){
+        //light up
+        instantspan =  map(tempytilt,0,9,SpanWheel(span),0);
+        for( i=0; i<10; i++) {
+          if (i<tempytilt){
+            strip_buffer_2.setPixelColor(i,  Wheel(color));
+            strip_buffer_2.setPixelColor(19-i,  Wheel(color));
+          }
+          else{
+            strip_buffer_2.setPixelColor(i,  0);
+            strip_buffer_2.setPixelColor(19-i,  0);
+          }
+        }
+
+        instantspan =  map(tempytilt,0,20,0,SpanWheel(span));
+        for( i=0; i<10; i++) {
+          if (i<tempytilt){
+            strip_buffer_1.setPixelColor(i,  Wheel(color));
+            strip_buffer_1.setPixelColor(19-i,  Wheel(color));
+          }
+          else{
+            strip_buffer_1.setPixelColor(i,  0);
+            strip_buffer_1.setPixelColor(19-i,  0);
+          }
+        }
+      }
+      else{
+        //fade out
+        byte tempytilt = map(constrain(millis()-ytilt_one_way_timer,0,100),0,100,0,10);
+
+        instantspan =  0; 
+        for(int i=0; i<10; i++){
+          if(i>tempytilt){
+            strip_buffer_2.setPixelColor(i,  Wheel(color));
+            strip_buffer_2.setPixelColor(19-i,  Wheel(color));
+          }
+          else{
+            strip_buffer_2.setPixelColor(i,  0);
+            strip_buffer_2.setPixelColor(19-i,  0);
+          }
+        }
+
+        instantspan =  SpanWheel(span);
+        for(int i=0; i<10; i++){
+          if(i>tempytilt){
+            strip_buffer_1.setPixelColor(i,  Wheel(color));
+            strip_buffer_1.setPixelColor(19-i,  Wheel(color));
+          }
+          else{
+            strip_buffer_1.setPixelColor(i,  0);
+            strip_buffer_1.setPixelColor(19-i,  0);
+          }
+        }
+
+      }
 
 
-
-      break;
+      break;      
     }
   case 7:
     {
@@ -1302,7 +1368,7 @@ void output_strip(boolean y, boolean w, byte x, byte z){
       }
     }
     else{
-      if (effect_mode == 0){//reverse the effect differently for mode 0
+      if (effect_mode == 0 || effect_mode == 6){//reverse the effect differently for mode 0
         if (effectbuffer_mode ==x || effectbuffer_mode == z){ //choose alternate colors
           strip_buffer_2.showCompileTimeFold<clockPin, dataPin>();
         }
@@ -1330,7 +1396,7 @@ void output_strip(boolean y, boolean w, byte x, byte z){
       }
     }
     else{
-      if (effect_mode == 0){//reverse the effect differently for mode 0
+      if (effect_mode == 0 || effect_mode == 6){//reverse the effect differently for mode 0
         if (effectbuffer_mode == x || effectbuffer_mode == z){ //choose alternate colors
           strip_buffer_4.showCompileTimeFold<clockPin, dataPin>();
         }
@@ -1844,9 +1910,12 @@ void nunchuckparse(){
       case 4:
         auto_pump_multiplier = 3;
         break;
+      case 5:
+        auto_pump_multiplier = 4;
+        break;
       default:
-        auto_pump_multiplier = 3;
-        auto_pump_mode = 4;
+        auto_pump_multiplier = 4;
+        auto_pump_mode = 5;
       }
 
       if(auto_pump == true){
@@ -2361,7 +2430,7 @@ void updatedisplay(){
   }
 
   //LED4 - motion status
-  
+
   //idle mode is just blank, EQ modes are xtilt based, Motion modes are beat based
   if( effect_mode != 8){
     if (effect_mode == 0 || effect_mode == 1){  
@@ -2379,7 +2448,7 @@ void updatedisplay(){
         }     
       }
     } 
-    
+
     //fist pump modes
     else {  
       //if timer has ran out, set off alarm
@@ -2429,3 +2498,8 @@ void updatedisplay(){
   fade = tempfade;
   suit_brightness = tempbrightness;
 }
+
+
+
+
+

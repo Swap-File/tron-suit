@@ -24,12 +24,18 @@ int last_set_span=0;
 byte last_set_brightness=127;
 byte last_set_fade=0;
 
+#define SET_DIAG 0x17 //camera
+
 //these two can overlap
 #define SET_RAINBOW 0x19 //only recieved from suit
 #define TRIPLE_TAP 0x19  //only sent to suit
 unsigned long  tripletap_time = 0;
 
 #define BATTERY_LEVEL 0x1B  //only sent to suit
+
+#define BLINK_HELMET 0x1D  //blink indicator
+
+#define CAMERA_HELMET 0x1F  //camera indicator
 
 //serial buffer
 byte serialbuffer[3];
@@ -60,6 +66,7 @@ int angle=0;
 
 
 int disc_voltage=1024;
+unsigned long helmet_blink_timer=0;
 unsigned long last_update=0;
 unsigned long battery_update=0;
 unsigned long idle_timer=0;
@@ -198,6 +205,7 @@ void loop()
     //if the overlay 
     if (millis() - tripletap_time < 200){
       Serial.write(TRIPLE_TAP);
+      helmet_blink_timer = millis();
       for(int i=0; i<strip.numPixels(); i++) {
         strip.setPixelColor(i,0);
       }
@@ -207,13 +215,17 @@ void loop()
     else{
       if (disc_mode > 2){
         disc_mode = 0;
-        z_mode = 1;
+        z_mode = 0;
+        z_mode_time_cooldown = millis();
         digitalWrite(LIGHTS, LOW);
+        Serial.write(SET_DIAG);
+
       }
       else{
         disc_mode = 3;
         disc_mode_timer = millis();
         z_mode_angle = xy_angle;
+        Serial.write(CAMERA_HELMET);
       }
     }
   }
@@ -308,6 +320,13 @@ void loop()
     }
   }
 
+  if(helmet_blink_timer !=0){
+    if(millis()-helmet_blink_timer > 200){
+      Serial.write(BLINK_HELMET);
+      helmet_blink_timer=0;
+    }
+  }
+
   //accelerometer math
   int x_absolute,y_absolute,z_absolute;
   adxl.readAccel(&x_absolute, &y_absolute, &z_absolute); 
@@ -358,6 +377,7 @@ void loop()
       z_mode_time_cooldown = millis();
       disc_mode = 0;
       z_mode = 0;
+      Serial.write(BLINK_HELMET);
     }
     //if already in mode 0
     else if (disc_mode ==0 ){
@@ -367,12 +387,14 @@ void loop()
         z_mode_angle = xy_angle;
         z_mode = 2;
         idle_timer=millis();
+        Serial.write(BLINK_HELMET);
       }
       //if we are in overlay mode and get high z motion disable overlay
       else if (z_mode == 3 ||  z_mode == 4){  
         z_mode_time_cooldown = millis();
         tripletap_time = millis();
         z_mode =0;
+        Serial.write(BLINK_HELMET);
       }
     }
   }
@@ -449,6 +471,7 @@ void loop()
             z_mode_color = color;
             overlaytimer = 30;
             rotation_status =1;  
+            Serial.write(BLINK_HELMET);
           }
           if(rotation_status == 1){
             color =z_mode_color + z_mode_angle_difference*16;
@@ -456,6 +479,7 @@ void loop()
             if(abs( z_mode_angle_difference) == 4){  //finish color rotate
               overlaytimer = 30;
               rotation_status =0;  
+              Serial.write(BLINK_HELMET);
             }
           }
         }
@@ -520,10 +544,8 @@ void loop()
     {
       unsigned long temp_time = constrain(millis()-disc_mode_timer,0,1000);
       fade=0;
-      span=0;
       instantspan=0;
       z_mode = 1;
-
       byte temp = map(temp_time,0,1000,0,16);
       for(byte i=0; i<temp; i++) {
         //start at top of disc and work around
@@ -570,6 +592,7 @@ void loop()
     break;
   case 5: //camera closing
     {
+      span=0;
       unsigned long temp_time = constrain(millis()-disc_mode_timer,0,1000);
       byte temp = map(temp_time,0,1000,0,16);
       for(int i=temp; i>-1; i--) {
@@ -785,3 +808,5 @@ uint32_t Wheel(uint16_t WheelPos){
   b = b*brightness/127;
   return(strip.Color(r >> fade ,g >> fade,b >> fade));
 }
+
+

@@ -54,7 +54,7 @@ byte last_set_fade=8;  //set to impossible value to force sending first time
 #define SET_RAINBOW 0x19  //sent to disc with rainbow offset value, no data returned
 #define TRIPLE_TAP 0x19  //recieved from disc to swap suit modes on triple tap
 #define TEXTING_REPLY 0x19  //recieved from phone to ask for stats
-
+#define BLINK_HELMET 0x1D  //blink indicator
 #define CONFIRMED 0x11 //suit reply to bluetooth
 
 #define BATTERY_LEVEL 0x1B  //recieved from disc with voltage data
@@ -64,8 +64,9 @@ unsigned int disc_voltage=0;
 
 #define SET_FRAME1 0x15  //recieve from phone to set frame 1 data
 #define SET_FRAME2 0x17//recieve from phone to set frame 2 data
-
-
+#define SET_DIAG 0x17 //camera
+#define CAMERA_HELMET 0x1F  //camera indicator
+unsigned long camera_timer=0;
 //msgeq7 pins
 #define msgeq7_reset 3
 #define msgeq7_strobe 2
@@ -107,6 +108,7 @@ unsigned long overlay_starting_time=0;
 byte overlay_mode=0;
 byte overlay_event=0;
 
+
 //modes
 byte effectbuffer_mode = 0; //choose which buffer combination to display
 byte active_segment = 1;  //for mode #7, keeps track of which of 5 segments to light
@@ -117,6 +119,9 @@ byte disc_brightness=127;
 byte fade=0;
 int color=0;  //the chosen color used for effects  0-383 is mapped to the color wheel  384 is white 385 is rainbow 512 is full white
 byte fade_event=8;
+
+//used for smooth fading
+unsigned long disc_timer =0;
 
 int instantspan=0; //current span for effects set it to something between zero to span before calling wheel()
 int span=128;  //circle 0 128 256 384 512 mapped to 0 128 0 -128 0 
@@ -147,7 +152,6 @@ byte serial1bufferpointer = 0;
 
 boolean animation_event = false; //up right
 unsigned long animation_speedup_timer =0;
-
 boolean diag_event = false; //down right
 unsigned long ring_timer=0; //flash screen to ring for incoming message
 #define RINGTIMEOUT 1000  //time to flash for
@@ -341,7 +345,7 @@ void loop() {
   //from zero to to full brightness the 5v line changes by a few mV due to sagging
   //the lower vref goes the higher the ADC thinks the battery is
   jacket_voltage = jacket_voltage * .97 + analogRead(1) * .03;
-  if (jacket_voltage < 720){
+  if (jacket_voltage < 715){
     fade=7;
   }
   // Serial.print(disc_voltage); // * 11.11/693 = volts
@@ -581,6 +585,7 @@ void loop() {
     }
   }
 
+
   //adjust fade on combo release
   if(fade_event != 8){
     //reset if stick is let go of
@@ -589,7 +594,7 @@ void loop() {
     }
     //wait for two fade down presses to start fading down
     if (fade_event == 6){
-      if (fade < 7) fade++; 
+      if (fade < 7) fade++;
       fade_event = 7; //reset to 7 so one more press will adjust again
     }
     //wait for two fade up presses to start fading down
@@ -598,6 +603,7 @@ void loop() {
       fade_event =9; //reset to 9 so one more press will adjust again
     }
   }
+
 
   //code to roll the rainbow left and right
   if (color == 385){
@@ -907,7 +913,8 @@ void loop() {
     }
   case 2:
     {
-      suit_brightness = map(ytilt, 0, 254,0, 127);
+      //suit_brightness = map(ytilt, 0, 254,0, 127);
+      suit_brightness = ytilt >> 1;
 
       instantspan =  map(suit_brightness,0,127,SpanWheel(span),0);
       for( i=0; i<strip_buffer_2.numPixels(); i++) strip_buffer_2.setPixelColor(i,  Wheel(color));
@@ -1107,10 +1114,17 @@ void loop() {
       auto_pump_mode=0;
 
       suit_brightness=127;
+      
+      for( i=0; i<strip_buffer_2.numPixels(); i++){
+        instantspan =  map(i,0,19,SpanWheel(span),0);
+        strip_buffer_2.setPixelColor(i,  Wheel(color));
+      }
+      
       for( i=0; i<strip_buffer_1.numPixels(); i++){
         instantspan =  map(i,0,19,0,SpanWheel(span));
         strip_buffer_1.setPixelColor(i,  Wheel(color));
       }
+      
       break;
     }
   }
@@ -1150,7 +1164,6 @@ void loop() {
         overlay_mode=overlay_event;
       } 
     }
-    overlay_event=0;
   }
 
   if(overlay_mode!=0){ //code to run during overlays
@@ -1288,7 +1301,7 @@ void loop() {
 
   //service LCD display, do this after overlay code has ran so it has all the data to work with
   updatedisplay();    
-
+  overlay_event=0;
 }
 
 void output(byte w){
@@ -1575,6 +1588,9 @@ void readserial(){
       serial1payloadsize=2;
       break;
     case TRIPLE_TAP:
+    case SET_DIAG:
+    case BLINK_HELMET:
+    case CAMERA_HELMET:
       serial1bufferpointer=0;
       serial1payloadsize=0;
       break;
@@ -1582,17 +1598,41 @@ void readserial(){
     serial1buffer[serial1bufferpointer] = Serial1.read(); //load a character
     if(serial1bufferpointer == serial1payloadsize){//all payloads are size 2
       switch (serial1buffer[0]){
+      case CAMERA_HELMET:
+        {
+          camera_timer = millis();
+          break;
+        }
+      case BLINK_HELMET:
+        {
+          disc_timer = millis();
+          camera_timer= 0;
+          break;
+        }
       case BATTERY_LEVEL:
         {
           disc_voltage  = (serial1buffer[1] << 6) | (serial1buffer[2] >> 1);
           heartbeat = millis();
           break;
         }
+      case SET_DIAG:
+        {
+          frame_mode = 6;
+          display_timer =millis();
+          display_timer_timeout = 10000;
+          disc_timer = millis();
+          camera_timer = 0;
+          break;
+        }
       case TRIPLE_TAP:
         {
+          disc_timer = millis();
+          camera_timer = 0;
+          display_timer=0;
+          effectbuffer_mode=0;
+          output_mode = 0;
+          effectbuffer_mode = 0;
           switch(effect_mode){
-            effectbuffer_mode=0;
-            output_mode = 0;
           case 0:
             effect_mode = 8;
             break;
@@ -1792,7 +1832,7 @@ void nunchuckparse(){
   //nunchuck unplugged code
   if(nunchuk.pluggedin == false){
     effect_mode = 0;
-    output_mode = 6;  
+    output_mode = 0;  
     dpad = 0x00;
   }
 
@@ -1843,13 +1883,14 @@ void nunchuckparse(){
   }
   cButtonLast = nunchuk.cButton;
 
-  xtilt = xfilter.process(nunchuk.accelX);  //accelerometer based color selection
-  xtilt = constrain(xtilt, 350, 650);
-  xtilt= map(xtilt, 350, 650,0, 254);
 
-  ytilt = yfilter.process(nunchuk.accelY);
-  ytilt = constrain(ytilt, 500, 600);
+
+  xtilt =  xfilter.process(constrain(nunchuk.accelX, 350, 650));
+  xtilt= map(xtilt, 350, 650,0, 254); 
+
+  ytilt = yfilter.process(constrain(nunchuk.accelY, 500, 600));
   ytilt = map(ytilt, 500, 600,0, 254);
+
 
   //calculate auto value
   ytilt_auto = map((millis()-bpm_starting_time )% (bpm_period >> auto_pump_multiplier), 0, (bpm_period >> auto_pump_multiplier), 0,254);
@@ -2116,19 +2157,18 @@ void updatedisplay(){
     }
   }
 
-  //if we are not in a dpad mode
+
   //display pure color or span while changing it
   //so I can see what I am doing
-  if(overlay_event == 0){
-    if ( zButtonDelayed == 1 && cButtonDelayed == 0){
-      instantspan=SpanWheel(span);
-      fade=0;
-    }
-    else if ( zButtonDelayed == 0 && cButtonDelayed == 1){
-      instantspan=0;
-      fade=0;
-    }
+  if ( zButtonDelayed == 1 && cButtonDelayed == 0){
+    instantspan=SpanWheel(span);
+    fade=0;
   }
+  else if ( zButtonDelayed == 0 && cButtonDelayed == 1){
+    instantspan=0;
+    fade=0;
+  }
+
 
   if (overlay_mode == 1 ){
     fade=0;
@@ -2386,7 +2426,7 @@ void updatedisplay(){
   //if not double tapped, determine LED1 and 2 below
   if (zc_doubletap_status !=3){
     //LED1 c button status
-    if (nunchuk.cButton){
+    if (nunchuk.cButton || (overlay_event != 0 && overlay_mode !=0)){
       //blink out the fade level on LED1, if fade level is greater than zero.
       unsigned long currenttime=  (millis() - cButtonTimer) >> 6;
       if ((((currenttime % 16) < (tempfade << 1)) && ((currenttime & 0x01) == 0x01)) == false) {
@@ -2397,7 +2437,7 @@ void updatedisplay(){
     //LED2 Z button status
     if (nunchuk.zButton){
       //if overlay is primed, blink led2
-      if (overlay_event != 0 ||(auto_pump_mode != 0 && DPAD_DOWN)){
+      if (overlay_event != 0 ){
         if((millis()  >> 8) & 0x01 ){
           bitSet(gpio,1);
         }
@@ -2419,13 +2459,13 @@ void updatedisplay(){
   //LED3 - dpad status
   //light on dpad registering a direction, and blink on diagonal output modes
   if (dpad & 0x0F){
-    bitSet(gpio,2);
-  }
-  else {
     if (output_mode ==1 || output_mode ==3 || output_mode ==5 || output_mode ==7 ){
       if((millis()  >> 8) & 0x01 ){ 
         bitSet(gpio,2);
       }
+    }
+    else{
+      bitSet(gpio,2);
     }
   }
 
@@ -2461,14 +2501,14 @@ void updatedisplay(){
       //otherwise just display the current beat  status
       else{
         //force display of raw ytilt data if up is pressed (prepping to exit auto mode)
-        if (dpad == DPAD_UP){
+        if (dpad == DPAD_UP && auto_pump == true){
           if (beat_completed_raw == true){
             bitSet(gpio,3);
           }
         }
         //force display of auto ytilt data if up is pressed (prepping to enter auto mode)
-        else if (dpad == DPAD_DOWN){
-          if (beat_completed_auto == true){
+        else if (dpad == DPAD_DOWN&& auto_pump == false){
+          if (beat_completed_auto == true ){
             bitSet(gpio,3);
           }
         }
@@ -2492,12 +2532,35 @@ void updatedisplay(){
     }
   }
 
+  if ((millis() - disc_timer < 100)|| (millis() - camera_timer < 2000)){
+    gpio=0x0F;
+  }
+
   Serial3.write(gpio);
 
   //set brightness back
   fade = tempfade;
   suit_brightness = tempbrightness;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

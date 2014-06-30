@@ -52,7 +52,7 @@ int rainbowoffset = 383;
 #define  S2_OUT  4
 #define  S3_OUT  2
 MD_TCS230	CS(S2_OUT, S3_OUT, S0_OUT,S1_OUT );
-
+int camera_cycle =0;
 
 int color = 0;
 byte fade = 0;
@@ -182,7 +182,7 @@ void loop()
 
 
   //reset on idle timeout and on full fade
-  if (millis()- idle_timer > 10000 || fade == 7 ){
+  if ((millis()- idle_timer > 10000 || fade == 7) && disc_mode != 4){
     disc_mode = 0;
     z_mode = 1;
   }
@@ -551,11 +551,12 @@ void loop()
         //start at top of disc and work around
         strip.setPixelColor((i+z_mode_angle+8 )%16,Wheel(384)); // Set new pixel 'on'
       }
-      if (temp_time == 1000){
+      if (temp_time >= 1000){
         disc_mode++;
         digitalWrite(LIGHTS, HIGH);
         CS.read();
         disc_mode_timer=millis();
+        camera_cycle = 0 ;
       }
       break;
     }
@@ -566,32 +567,50 @@ void loop()
         sensorData	sd;
         CS.getRaw(&sd);	
         CS.getRGB(&rgb);
-        digitalWrite(LIGHTS, LOW);
 
         //if dark, shut down
-        if (sd.value[TCS230_RGB_R]+sd.value[TCS230_RGB_G]+sd.value[TCS230_RGB_B] <200){ 
-          fade = 7;
-          disc_mode = 0;
-          z_mode = 1;
+        if (camera_cycle == 0){ 
+          if (sd.value[TCS230_RGB_R]+sd.value[TCS230_RGB_G]+sd.value[TCS230_RGB_B] <200){
+            fade = 7;
+ 
+            disc_mode = 0;
+            z_mode = 1;
+            break;
+          }
+
         }
-        else{
-          //if color is flooded, ignore
-          if(rgb.value[TCS230_RGB_R] != 255 && rgb.value[TCS230_RGB_G] != 255 && rgb.value[TCS230_RGB_B] != 255){
-            //if too white, ignore
-            if (sd.value[TCS230_RGB_R]+sd.value[TCS230_RGB_G]+sd.value[TCS230_RGB_B] < 12000){
-              color = RGBtoHSV(rgb.value[TCS230_RGB_R],rgb.value[TCS230_RGB_G],rgb.value[TCS230_RGB_B]);
-              last_set_color=color; //supress sending color
-              span=0;
+
+        Serial.print("he43\n");
+        camera_cycle = 1;
+
+        //if color is flooded, ignore
+        if(rgb.value[TCS230_RGB_R] != 255 && rgb.value[TCS230_RGB_G] != 255 && rgb.value[TCS230_RGB_B] != 255){
+          //if too white, ignore
+
+          if (sd.value[TCS230_RGB_R]+sd.value[TCS230_RGB_G]+sd.value[TCS230_RGB_B] < 12000){
+            color = RGBtoHSV(rgb.value[TCS230_RGB_R],rgb.value[TCS230_RGB_G],rgb.value[TCS230_RGB_B]);
+           
+            fade=0;
+            instantspan=0;
+          span=0;
+            for(byte i=0; i<16; i++) {
+              strip.setPixelColor(i,Wheel(color)); 
             }
           }
-          disc_mode++;
-          disc_mode_timer=millis();
         }
+        //disc_mode++;
+
+        //fire camera again
+
+        disc_mode_timer=millis();
+        CS.read();
+
       }
+      break;
     }
-    break;
   case 5: //camera closing
     {
+      digitalWrite(LIGHTS, LOW);
       span=0;
       unsigned long temp_time = constrain(millis()-disc_mode_timer,0,1000);
       byte temp = map(temp_time,0,1000,0,16);
@@ -808,5 +827,12 @@ uint32_t Wheel(uint16_t WheelPos){
   b = b*brightness/127;
   return(strip.Color(r >> fade ,g >> fade,b >> fade));
 }
+
+
+
+
+
+
+
 
 
